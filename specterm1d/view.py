@@ -81,13 +81,36 @@ class ViewState:
     cursor_y: float | None = None
     markers: list[float] = field(default_factory=list)
     fits: list[tuple[np.ndarray, np.ndarray]] = field(default_factory=list)
+    overrides: dict[str, Spec] = field(default_factory=dict)
+    undo_stack: list[tuple[str, "Spec | None", str]] = field(default_factory=list)
 
     @property
     def entry(self) -> SpecEntry:
         return self.collection[self.index]
 
+    def _spec_key(self) -> str:
+        return f"{self.index}:{self.variant or self.entry.default}"
+
+    def push_transform(self, spec: Spec, label: str) -> None:
+        key = self._spec_key()
+        self.undo_stack.append((key, self.overrides.get(key), label))
+        self.overrides[key] = spec
+
+    def undo(self) -> str | None:
+        if not self.undo_stack:
+            return None
+        key, previous, label = self.undo_stack.pop()
+        if previous is None:
+            self.overrides.pop(key, None)
+        else:
+            self.overrides[key] = previous
+        return label
+
     def current_spec(self) -> Spec:
         """The underlying spectrum, in wavelength space."""
+        override = self.overrides.get(self._spec_key())
+        if override is not None:
+            return override
         entry = self.entry
         key = self.variant if self.variant in entry.variants else entry.default
         return entry.variants[key]
