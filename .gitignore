@@ -8,3 +8,4 @@ dist/
 .venv/
 .DS_Store
 splot.log
+specterm1d.egg-info/
