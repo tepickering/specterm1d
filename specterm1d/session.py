@@ -19,6 +19,7 @@ from specterm1d.plot import SpectrumPlot
 from specterm1d.spec import SpecCollection
 from specterm1d.term.base import CellRect
 from specterm1d.term.caps import TerminalCaps
+from specterm1d import keymap
 from specterm1d.term.input import Key, KeyReader
 from specterm1d.view import ViewState
 
@@ -133,12 +134,14 @@ class Session:
         self.view.cursor_y = float(np.clip(current + step, lo, hi))
 
     def handle(self, key: Key) -> bool:
-        """Return False to exit the session."""
         if key.name == "resize":
             self.on_resize(*self._terminal_size())
             return True
         if key.name == "eof":
             return False
+
+        if self.pending is not None:
+            return self._handle_pending(key)
 
         if self._move_cursor_key(key):
             return True
@@ -170,19 +173,95 @@ class Session:
             self.move_cursor_y(-step)
         return True
 
-    def dispatch_char(self, char: str) -> bool:
-        """Overridden in Task 9 by the full splot keymap."""
-        if char == "q":
-            return False
-        if char == "r":
-            self.message("redraw")
+    # ---- modal states -----------------------------------------------
+
+    def await_key(self, prompt: str, handler, options: dict[str, str]) -> None:
+        self.pending = keymap.AwaitKey(prompt, handler, options)
+        detail = "  ".join(f"{k}={v}" for k, v in options.items())
+        self.message(f"{prompt}: {detail}" if detail else prompt)
+
+    def await_cursor(self, count: int, prompt: str, handler) -> None:
+        self.pending = keymap.AwaitCursor(count, prompt, handler)
+        self.message(f"{prompt} (<space> to mark, ESC to cancel)")
+
+    def await_line(self, prompt: str, handler) -> None:
+        self.pending = keymap.AwaitLine(prompt, handler)
+        self.message(prompt)
+
+    def cancel_pending(self, why: str = "cancelled") -> None:
+        self.pending = None
+        self.message(why)
+
+    def _handle_pending(self, key) -> bool:
+        state = self.pending
+
+        if isinstance(state, keymap.AwaitLine):
+            if key.name == "escape":
+                self.pending = None
+                state.handler(self, None)
+            elif key.name == "enter":
+                self.pending = None
+                state.handler(self, state.buffer)
+            elif key.name == "backspace":
+                state.buffer = state.buffer[:-1]
+                self.message(state.prompt + state.buffer)
+            elif key.name == "char":
+                state.buffer += key.char
+                self.message(state.prompt + state.buffer)
             return True
-        if char == "c":
-            self.view.reset_limits()
-            self.message("cleared windowing")
+
+        if key.name == "escape":
+            self.cancel_pending()
             return True
-        self.message(f"unbound key: {char!r}")
+
+        if isinstance(state, keymap.AwaitKey):
+            if key.name == "char":
+                self.pending = None
+                state.handler(self, key.char)
+            return True
+
+        if isinstance(state, keymap.AwaitCursor):
+            if self._move_cursor_key(key):
+                return True
+            if key.name == "char" and key.char == " ":
+                state.collected.append((float(self.view.cursor_x),
+                                        float(self.view.cursor_y)))
+                remaining = state.count - len(state.collected)
+                if remaining > 0:
+                    self.message(f"{state.prompt}: {remaining} more")
+                else:
+                    self.pending = None
+                    state.handler(self, state.collected)
+            return True
+
+        self.pending = None
         return True
+
+    def dispatch_char(self, char: str) -> bool:
+        binding = keymap.KEYMAP.get(char)
+        if binding is None:
+            self.message(f"unbound key: {char!r}")
+            return True
+
+        if binding.deferred:
+            self.message(f"{binding.help} ({char}): not implemented in v1")
+            return True
+
+        handler = keymap.get_command(binding.name)
+        if handler is None:
+            self.message(f"{binding.name}: no handler registered")
+            return True
+
+        # A command raising must never kill the session; --debug promotes it.
+        try:
+            result = handler(self)
+        except Exception as exc:
+            if self.debug:
+                raise
+            self.pending = None
+            self.message(f"{binding.name} failed: {exc}")
+            return True
+        return False if result is False else True
 
     def _terminal_size(self) -> tuple[int, int]:
         from specterm1d.term.caps import window_size
