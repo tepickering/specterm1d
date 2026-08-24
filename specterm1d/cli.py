@@ -58,6 +58,11 @@ def main(argv: list[str] | None = None) -> int:
                       out=sys.stdout, caps=caps)
     session.debug = args.debug
 
+    if args.log:
+        from specterm1d.logfile import SplotLog
+
+        session.log = SplotLog(args.log)
+
     if args.units:
         import astropy.units as u
         session.view.set_axis(unit=u.Unit(args.units))

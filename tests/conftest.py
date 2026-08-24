@@ -5,6 +5,16 @@ import pytest
 from astropy.nddata import InverseVariance
 
 
+@pytest.fixture(autouse=True)
+def isolate_cwd(tmp_path, monkeypatch):
+    """Keep tests out of the user's working directory.
+
+    Session builds a SplotLog on splot.log's default *relative* path, so
+    without this every measurement test would append to the repo's own log.
+    """
+    monkeypatch.chdir(tmp_path)
+
+
 @pytest.fixture
 def tabular_fits(tmp_path):
     """A tabular-fits file with known flux, ivar and mask.

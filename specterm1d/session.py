@@ -15,6 +15,7 @@ import sys
 
 import numpy as np
 
+from specterm1d.logfile import SplotLog
 from specterm1d.plot import SpectrumPlot
 from specterm1d.spec import SpecCollection
 from specterm1d.term.base import CellRect
@@ -50,10 +51,18 @@ class Session:
         self.overlay_specs: list = []
         self.showing_help: bool = False
         self.hint_index: int = 0
+        self.log = SplotLog()
+        self.showing_log = False
+        self.mouse_enabled = False
 
         self.pending: object | None = None      # AwaitKey / AwaitCursor, Task 9
         self.debug = False
         self._torn_down = False
+
+    def set_mouse(self, enabled: bool) -> None:
+        """Task 16 replaces this with real SGR mouse reporting."""
+        self.mouse_enabled = enabled
+        self.message(f"mouse {'on' if enabled else 'off'}")
 
     def load_path(self, path) -> bool:
         from specterm1d.io import registry
