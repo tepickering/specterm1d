@@ -130,6 +130,32 @@ KEYMAP.update({
     for key, helptext in DEFERRED.items()
 })
 
+# The gtools window submode reached with 'w', transcribed from IRAF
+# pkg/xtools/gtools/gtwindow.x and lib/scr/gtools.key. Shifts are 0.75 of the
+# window, zooms are cursor +/- d/4 (a factor of two), and 'p' pans to cursor
+# +/- d, which doubles the window - exactly as gt_window1 does it.
+WINDOW_KEYS = {
+    "a": "autoscale x and y axes",
+    "b": "set bottom edge of window",
+    "c": "center window at cursor position",
+    "d": "shift window down",
+    "e": "expand window (mark two corners)",
+    "f": "flip x axis",
+    "g": "flip y axis",
+    "j": "set left edge of window",
+    "k": "set right edge of window",
+    "l": "shift window left",
+    "m": "autoscale x axis",
+    "n": "autoscale y axis",
+    "p": "pan x and y axes about cursor",
+    "r": "shift window right",
+    "t": "set top edge of window",
+    "u": "shift window up",
+    "x": "zoom x axis about cursor",
+    "y": "zoom y axis about cursor",
+    "z": "zoom x and y axes about cursor",
+}
+
 STATUS_HINTS = [
     "? help   a expand   c clear   z zoom   , . pan   ( ) prev/next   q quit",
     "e eqw   m stats   k+g|l|v fit   h+a|b|c|l|r|k width   s smooth   U undo",
@@ -147,6 +173,12 @@ def help_text(cols: int = 80) -> list[str]:
         shown = "<space>" if key == " " else key
         lines.extend(textwrap.wrap(f"  {shown:<8} {helptext}", width=cols,
                                    subsequent_indent=" " * 11) or [f"  {shown}"])
+
+    lines.append("")
+    lines.append("Window submode (w), from IRAF gtools")
+    for key, helptext in WINDOW_KEYS.items():
+        lines.extend(textwrap.wrap(f"  {key:<8} {helptext}", width=cols,
+                                   subsequent_indent=" " * 11))
 
     lines.append("")
     lines.append("Registered but not implemented in v1")

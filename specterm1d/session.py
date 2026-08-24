@@ -45,9 +45,33 @@ class Session:
         self.view.cursor_x = float(np.mean(self.view.xlim))
         self.view.cursor_y = float(np.mean(self.view.ylim))
         self.last_message = ""
+        self.files: list = []
+        self.file_index: int = 0
+        self.overlay_specs: list = []
+        self.showing_help: bool = False
+        self.hint_index: int = 0
+
         self.pending: object | None = None      # AwaitKey / AwaitCursor, Task 9
         self.debug = False
         self._torn_down = False
+
+    def load_path(self, path) -> bool:
+        from specterm1d.io import registry
+
+        try:
+            collection = registry.load(path)
+        except registry.LoaderError as exc:
+            self.message(str(exc).splitlines()[0])
+            return False
+
+        if self.view.overplot_next:
+            self.overlay_specs.append(self.view.current_spec())
+        self.collection = collection
+        self.view = ViewState(collection)
+        self.view.reset_limits()
+        self.view.cursor_x = float(np.mean(self.view.xlim))
+        self.message(f"loaded {collection.path} ({len(collection)} spectra)")
+        return True
 
     # ---- layout -----------------------------------------------------
 

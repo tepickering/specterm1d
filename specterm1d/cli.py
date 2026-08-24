@@ -9,6 +9,7 @@ from specterm1d.io import registry
 from specterm1d.plot import SpectrumPlot
 from specterm1d.session import Session
 from specterm1d.term import caps as caps_mod
+import specterm1d.commands  # noqa: F401  - registers command handlers
 import specterm1d.term  # noqa: F401  - registers renderer factories
 
 RENDERERS = ("kitty", "iterm2", "sixel", "halfblock")

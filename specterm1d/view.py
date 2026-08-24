@@ -73,6 +73,7 @@ class ViewState:
     histogram: bool = False
     zero_base: bool = False
     flip: bool = False
+    flip_y: bool = False
     window_reset: bool = True      # :wreset - re-autoscale on entry change
     overplot_next: bool = False
 
@@ -150,6 +151,9 @@ class ViewState:
         xlim = self.xlim
         if self.flip:
             xlim = (xlim[1], xlim[0])
+        ylim = self.ylim
+        if self.flip_y:
+            ylim = (ylim[1], ylim[0])
         markers = tuple(self.markers)
         if self.cursor_x is not None:
             markers = markers + (self.cursor_x,)
@@ -159,7 +163,7 @@ class ViewState:
         return PlotRequest(
             spec=spec,
             xlim=xlim,
-            ylim=self.ylim,
+            ylim=ylim,
             show_sigma=self.show_sigma,
             show_mask=self.show_mask,
             overlays=tuple(sorted(self.overlays)),
