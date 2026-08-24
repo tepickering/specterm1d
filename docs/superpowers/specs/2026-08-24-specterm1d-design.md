@@ -422,9 +422,9 @@ drives a real terminal.
 
 ## Packaging
 
-`pyproject.toml`, Python >= 3.11, console scripts `specterm1d` and `st1d`.
+`pyproject.toml`, Python >= 3.13, console scripts `specterm1d` and `st1d`.
 
-Required: numpy, scipy, matplotlib, astropy, specutils.
+Required: numpy >= 2.5, scipy, matplotlib, astropy, specutils.
 
 **pypeit is an optional extra**, not a hard dependency. It is a heavy install,
 and this must be usable as a general FITS spectrum viewer without it. The
