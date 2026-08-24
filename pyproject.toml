@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "specterm1d"
+version = "0.1.0.dev0"
+description = "Terminal-based 1D spectrum viewer with IRAF splot keybindings"
+readme = "README.md"
+requires-python = ">=3.13"
+license = "BSD-3-Clause"
+authors = [{name = "T. E. Pickering", email = "te.pickering@gmail.com"}]
+dependencies = [
+    # fitting.py uses np.trapezoid; np.trapz is gone in numpy 2.x
+    "numpy>=2.5",
+    "scipy>=1.10",
+    "matplotlib>=3.7",
+    "astropy>=6.0",
+    "specutils>=2.0",
+]
+
+[project.optional-dependencies]
+pypeit = ["pypeit>=1.14"]
+sixel = ["libsixel-python>=0.5"]
+dev = ["pytest>=7.4", "pytest-cov", "ruff"]
+
+[project.scripts]
+specterm1d = "specterm1d.cli:main"
+st1d = "specterm1d.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["specterm1d*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["devsuite: requires PypeIt-development-suite data on disk"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
