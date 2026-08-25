@@ -128,7 +128,9 @@ class SpectrumPlot:
         FigureCanvasAgg(self.fig)
         self.ax = self.fig.add_subplot(111)
         self._style_axes()
-        self.fig.subplots_adjust(left=0.08, right=0.99, top=0.93, bottom=0.12)
+        # right=0.99 clipped the final x tick label ('9000' rendering as
+        # '900'); leave room for half a label at each end.
+        self.fig.subplots_adjust(left=0.09, right=0.975, top=0.93, bottom=0.12)
 
     def _style_axes(self) -> None:
         ax = self.ax

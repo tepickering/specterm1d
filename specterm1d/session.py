@@ -12,6 +12,7 @@ from __future__ import annotations
 import atexit
 import signal
 import sys
+from pathlib import Path
 
 import numpy as np
 
@@ -55,8 +56,9 @@ class Session:
         self.showing_log = False
         self.mouse_enabled = False
 
-        self.pending: object | None = None      # AwaitKey / AwaitCursor, Task 9
+        self.pending: object | None = None      # AwaitKey / AwaitCursor
         self.debug = False
+        self.finished = False
         self._torn_down = False
 
     def set_mouse(self, enabled: bool) -> None:
@@ -99,9 +101,29 @@ class Session:
 
     # ---- rendering --------------------------------------------------
 
+    def render_rgba(self, size: tuple[int, int] | None = None):
+        """Render one frame without writing to the terminal.
+
+        ``size`` overrides the terminal-derived geometry. --dump wants that:
+        a PNG has no status line to leave two rows for, so it should come out
+        at exactly the requested size.
+        """
+        if size is None:
+            rect = self.plot_rect()
+            size = self.renderer.target_pixels(rect.rows, rect.cols)
+        self.plot.resize(*size)
+        return self.plot.render(self.view.to_request(title=self.title()))
+
+    def dump_png(self, path, size: tuple[int, int] | None = None) -> None:
+        from PIL import Image
+
+        Image.fromarray(self.render_rgba(size)[..., :3]).save(str(path))
+
     def title(self) -> str:
-        name = self.collection.path or ""
-        return f"{name}  {self.view.entry.label}"
+        # The basename, not the path: a full absolute path is both unreadable
+        # and wide enough to be clipped at either end of the figure.
+        path = self.collection.path or ""
+        return f"{Path(path).name}  {self.view.entry.label}".strip()
 
     def render(self) -> None:
         rect = self.plot_rect()
@@ -324,6 +346,7 @@ class Session:
                             break
                     if running:
                         self.render()
+            self.finished = True
         finally:
             self.teardown()
 
