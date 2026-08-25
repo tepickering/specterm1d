@@ -99,6 +99,9 @@ def main(argv: list[str] | None = None) -> int:
         import astropy.units as u
         session.view.set_axis(unit=u.Unit(args.units))
 
+    if args.mouse:
+        session.set_mouse(True)
+
     try:
         session.run()
     except Exception as exc:

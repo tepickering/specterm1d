@@ -7,12 +7,15 @@ owns termios and SIGWINCH.
 from __future__ import annotations
 
 import os
+import re
 import select
 import signal
 import sys
 import termios
 import tty
 from dataclasses import dataclass
+
+_SGR_MOUSE = re.compile(r"\x1b\[<(\d+);(\d+);(\d+)([Mm])")
 
 _ARROWS = {"A": "up", "B": "down", "C": "right", "D": "left",
            "H": "home", "F": "end"}
@@ -128,6 +131,17 @@ def parse_keys(buf: bytes) -> tuple[list[Key], bytes]:
         i += width
 
     return keys, buf[i:]
+
+
+def parse_sgr_mouse(text: str) -> tuple[int, int, int] | None:
+    """(button, col, row) from an SGR mouse report; None if not one.
+
+    Columns and rows are 1-based, as the terminal reports them.
+    """
+    match = _SGR_MOUSE.match(text)
+    if match is None:
+        return None
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
 
 
 class KeyReader:

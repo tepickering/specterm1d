@@ -28,6 +28,8 @@ from specterm1d.view import ViewState
 HIDE_CURSOR = "\x1b[?25l"
 SHOW_CURSOR = "\x1b[?25h"
 CLEAR_SCREEN = "\x1b[2J\x1b[H"
+MOUSE_ON = "\x1b[?1000;1002;1006h"
+MOUSE_OFF = "\x1b[?1000;1002;1006l"
 
 # Arrow-key step as a fraction of the visible x range.
 CURSOR_STEP = 0.002
@@ -62,9 +64,38 @@ class Session:
         self._torn_down = False
 
     def set_mouse(self, enabled: bool) -> None:
-        """Task 16 replaces this with real SGR mouse reporting."""
         self.mouse_enabled = enabled
+        try:
+            self.out.write(MOUSE_ON if enabled else MOUSE_OFF)
+            self.out.flush()
+        except Exception:
+            pass
         self.message(f"mouse {'on' if enabled else 'off'}")
+
+    def on_mouse(self, col: int, row: int) -> None:
+        """Map a 1-based terminal cell to data coordinates.
+
+        The axes occupy only part of the figure, so the cell is first mapped
+        to a figure fraction and then tested against the axes bbox; clicks in
+        the margins, the status line or the message line are ignored.
+        """
+        rect = self.plot_rect()
+        if rect.cols <= 0 or rect.rows <= 0:
+            return
+
+        frac_x = (col - 1 - rect.col) / rect.cols
+        frac_y = 1.0 - (row - 1 - rect.row) / rect.rows
+        bbox = self.plot.ax.get_position()
+
+        if not (bbox.x0 <= frac_x <= bbox.x1 and bbox.y0 <= frac_y <= bbox.y1):
+            return
+
+        tx = (frac_x - bbox.x0) / (bbox.x1 - bbox.x0)
+        ty = (frac_y - bbox.y0) / (bbox.y1 - bbox.y0)
+        xlo, xhi = self.view.xlim
+        ylo, yhi = self.view.ylim
+        self.view.cursor_x = float(xlo + tx * (xhi - xlo))
+        self.view.cursor_y = float(ylo + ty * (yhi - ylo))
 
     def load_path(self, path) -> bool:
         from specterm1d.io import registry
@@ -194,6 +225,15 @@ class Session:
             return True
         if key.name == "eof":
             return False
+
+        if key.name == "mouse":
+            if self.mouse_enabled:
+                from specterm1d.term.input import parse_sgr_mouse
+
+                report = parse_sgr_mouse(key.char)
+                if report is not None:
+                    self.on_mouse(report[1], report[2])
+            return True
 
         if self.pending is not None:
             return self._handle_pending(key)
@@ -356,6 +396,11 @@ class Session:
         self._torn_down = True
         try:
             self.renderer.teardown()
+        except Exception:
+            pass
+        try:
+            if self.mouse_enabled:
+                self.out.write(MOUSE_OFF)
         except Exception:
             pass
         try:
