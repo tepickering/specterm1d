@@ -19,10 +19,11 @@ import numpy as np
 
 from specterm1d import keymap
 from specterm1d.logfile import SplotLog
-from specterm1d.plot import SpectrumPlot
+from specterm1d.plot import COLOR_OVERLAY, SpectrumPlot, tick_values
 from specterm1d.spec import SpecCollection
 from specterm1d.term.base import CellRect
 from specterm1d.term.caps import TerminalCaps
+from specterm1d.term.chrome import ChromeLayout, layout_for, render_chrome
 from specterm1d.term.input import Key, KeyReader
 from specterm1d.view import ViewState
 
@@ -58,6 +59,12 @@ class Session:
         self.log = SplotLog()
         self.showing_log = False
         self.page_index = 0
+        # Only the halfblock backend needs text chrome, and only on a real
+        # terminal: --dump writes a PNG, which wants matplotlib's own labels.
+        self.text_chrome = bool(getattr(renderer, "text_chrome", False)
+                                and caps is not None and caps.is_tty)
+        self.plot.bare = self.text_chrome
+        self._chrome_cache: str | None = None
         self.mouse_enabled = False
 
         self.pending: object | None = None      # AwaitKey / AwaitCursor
@@ -119,9 +126,29 @@ class Session:
 
     # ---- layout -----------------------------------------------------
 
-    def plot_rect(self) -> CellRect:
+    def outer_rect(self) -> CellRect:
+        """Everything above the status and message lines."""
         return CellRect(row=0, col=0, rows=max(self.caps.rows - 2, 1),
                         cols=self.caps.cols)
+
+    def chrome_layout(self) -> ChromeLayout:
+        """Where the image goes once the text decoration has its share."""
+        outer = self.outer_rect()
+        _, ylabels = self.y_ticks(outer.rows)
+        return layout_for(outer, ylabels, title=True)
+
+    def y_ticks(self, rows: int):
+        n = int(np.clip(rows // 5, 2, 6))
+        return tick_values(*self.view.ylim, n)
+
+    def x_ticks(self, cols: int):
+        n = int(np.clip(cols // 14, 2, 8))
+        return tick_values(*self.view.xlim, n)
+
+    def plot_rect(self) -> CellRect:
+        if not self.text_chrome:
+            return self.outer_rect()
+        return self.chrome_layout().plot
 
     def on_resize(self, rows: int, cols: int) -> None:
         self.caps = TerminalCaps(
@@ -131,6 +158,7 @@ class Session:
             is_tty=self.caps.is_tty,
         )
         self.renderer.teardown()      # force a full repaint
+        self._chrome_cache = None
 
     # ---- rendering --------------------------------------------------
 
@@ -162,12 +190,36 @@ class Session:
         if self.showing_help or self.showing_log:
             self._write_text_page()
             return
-        rect = self.plot_rect()
+        layout = self.chrome_layout() if self.text_chrome else None
+        rect = layout.plot if layout else self.outer_rect()
         width, height = self.renderer.target_pixels(rect.rows, rect.cols)
         self.plot.resize(width, height)
-        rgba = self.plot.render(self.view.to_request(title=self.title()))
+        request = self.view.to_request(title=self.title())
+        rgba = self.plot.render(request)
         self.renderer.draw(rgba, rect)
+        if layout is not None:
+            self._write_chrome(layout, request)
         self._write_footer()
+
+    def _write_chrome(self, layout: ChromeLayout, request) -> None:
+        """Paint the axis decoration as text, skipping unchanged frames.
+
+        Panning redraws it every keystroke; the labels usually have not moved,
+        and a few hundred bytes of escape per key is worth avoiding.
+        """
+        text = render_chrome(
+            layout, self.view.xlim, self.view.ylim,
+            xticks=self.x_ticks(layout.plot.cols),
+            yticks=self.y_ticks(layout.plot.rows),
+            title=self.title(),
+            xlabel=request.xlabel, ylabel=request.ylabel,
+            legend=[(name, COLOR_OVERLAY[i % len(COLOR_OVERLAY)])
+                    for i, name in enumerate(sorted(self.view.overlays))],
+            truecolor=self.caps.truecolor,
+        )
+        if text != self._chrome_cache:
+            self.out.write(text)
+            self._chrome_cache = text
 
     # ---- full-screen text pages (? and :show) -----------------------
     #
@@ -182,7 +234,7 @@ class Session:
 
     def _text_page_count(self) -> tuple[int, int]:
         """(lines per page, number of pages)."""
-        per_page = max(self.plot_rect().rows - 1, 1)
+        per_page = max(self.outer_rect().rows - 1, 1)
         lines = self._text_page_lines()
         return per_page, max((len(lines) + per_page - 1) // per_page, 1)
 
@@ -208,6 +260,7 @@ class Session:
         self.showing_log = False
         self.page_index = 0
         self.renderer.teardown()     # the plot must repaint in full
+        self._chrome_cache = None
         self.message("")
 
     def _handle_text_page(self, key: Key) -> bool:

@@ -64,6 +64,14 @@ bottom as background, giving `cols x 2*rows` effective pixels; frames are
 diffed so a redraw costs only the cells that changed. Terminal.app never
 gained 24-bit colour, so there is an xterm-256 path as well as truecolor.
 
+Because that gives a 116x43 window a 116x82 pixel figure, halfblock does not
+let matplotlib draw the axis decoration: a 4pt tick label is 5.6 px tall
+there, which is a smear across three cells at any font size. Instead the
+figure is rendered full bleed with nothing but data, and the terminal paints
+the spines, tick marks, labels, title and legend as its own glyphs at your
+font size. The curve ends up with more pixels than it had when matplotlib was
+spending margins on labels nobody could read.
+
 Under tmux the kitty protocol is never probed — its passthrough is unreliable
 — so tmux users get sixel where tmux was built with `--enable-sixel`, and
 halfblock otherwise.

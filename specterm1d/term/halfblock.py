@@ -106,6 +106,7 @@ def render_cells(cells: np.ndarray, prev: np.ndarray | None = None, *,
 
 class HalfblockRenderer:
     name = "halfblock"
+    text_chrome = True
 
     def __init__(self, out=None, truecolor: bool = True):
         self.out = out if out is not None else sys.stdout

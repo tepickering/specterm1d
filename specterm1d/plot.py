@@ -38,6 +38,7 @@ class Chrome:
     xlabel: bool
     ylabel: bool
     minor_ticks: bool
+    frame: bool = True         # False strips ticks and spines entirely
 
 
 # The halfblock backend renders one pixel per terminal column and two per row,
@@ -52,8 +53,15 @@ CHROME_FULL = Chrome(8, None, 3.5, 3.5, (0.09, 0.975, 0.93, 0.12),
                      True, True, True, True)
 CHROME_SMALL = Chrome(5, 4, 1.5, 1.0, (0.13, 0.995, 0.90, 0.26),
                       True, True, False, False)
-CHROME_TINY = Chrome(4, 3, 1.0, 0.8, (0.17, 0.995, 0.99, 0.17),
+# top=0.99 clipped the highest y tick label in half and right=0.995 clipped
+# the last x label, so TINY reserves a little of both edges for them.
+CHROME_TINY = Chrome(4, 3, 1.0, 0.8, (0.17, 0.96, 0.93, 0.17),
                      False, False, False, False)
+
+# Nothing but data. Used when the terminal draws the axis decoration itself,
+# where matplotlib's own labels would be a 5.6 px smear across three cells.
+CHROME_BARE = Chrome(4, 3, 0.0, 0.0, (0.0, 1.0, 1.0, 0.0),
+                     False, False, False, False, frame=False)
 
 
 def chrome_for(width_px: float, height_px: float) -> Chrome:
@@ -63,6 +71,40 @@ def chrome_for(width_px: float, height_px: float) -> Chrome:
     if width_px >= 150 and height_px >= 70:
         return CHROME_SMALL
     return CHROME_TINY
+
+
+def tick_values(lo: float, hi: float, n: int) -> tuple[list[float], list[str]]:
+    """Round tick positions inside ``[lo, hi]``, with formatted labels.
+
+    A pure function of the limits - no figure and no axis - because the
+    terminal chrome needs the same numbers matplotlib would have drawn, but
+    has to place them in cells rather than pixels.
+    """
+    if not np.isfinite([lo, hi]).all() or hi <= lo:
+        return [lo], [_format_tick(lo, 0)]
+
+    values = MaxNLocator(max(n, 2)).tick_values(lo, hi)
+    values = [float(v) for v in values if lo <= v <= hi]
+    if not values:
+        values = [lo, hi]
+
+    span = hi - lo
+    if all(v == round(v) for v in values) and max(abs(v) for v in values) < 1e7:
+        decimals = 0
+    else:
+        step = span / max(len(values), 1)
+        decimals = int(np.clip(-np.floor(np.log10(step)) + 1, 0, 6))
+
+    labels = [_format_tick(v, decimals) for v in values]
+    if max(len(text) for text in labels) > 8:
+        labels = [f"{v:.3g}" for v in values]
+    return values, labels
+
+
+def _format_tick(value: float, decimals: int) -> str:
+    text = f"{value:.{decimals}f}"
+    # "-0" and "-0.00" are arithmetic noise, not a measurement.
+    return text[1:] if text.lstrip("-0.") == "" and text.startswith("-") else text
 
 
 def masked_flux(spec: Spec) -> np.ndarray:
@@ -162,15 +204,34 @@ class PlotRequest:
 class SpectrumPlot:
     """A persistent Agg figure rendered to an RGBA buffer."""
 
-    def __init__(self, width_px: int, height_px: int, dpi: int = 100):
+    def __init__(self, width_px: int, height_px: int, dpi: int = 100,
+                 bare: bool = False):
         self.dpi = dpi
+        self._bare = bare
         self.fig = Figure(figsize=(width_px / dpi, height_px / dpi), dpi=dpi,
                           facecolor=COLOR_BG)
         FigureCanvasAgg(self.fig)
         self.ax = self.fig.add_subplot(111)
         self._style_axes(self.chrome())
 
+    @property
+    def bare(self) -> bool:
+        """True when the terminal paints the axis decoration itself.
+
+        Setting it restyles immediately rather than at the next render: the
+        axes position is what the cell -> data cursor mapping reads, so a
+        flag that led the styling by a frame would silently misplace clicks.
+        """
+        return self._bare
+
+    @bare.setter
+    def bare(self, value: bool) -> None:
+        self._bare = bool(value)
+        self._style_axes(self.chrome())
+
     def chrome(self) -> Chrome:
+        if self._bare:
+            return CHROME_BARE
         width_px, height_px = self.fig.get_size_inches() * self.dpi
         return chrome_for(width_px, height_px)
 
@@ -178,8 +239,17 @@ class SpectrumPlot:
         ax = self.ax
         ax.set_facecolor(COLOR_BG)
         for spine in ax.spines.values():
+            spine.set_visible(chrome.frame)
             spine.set_color(COLOR_FG)
             spine.set_linewidth(0.8 if chrome.minor_ticks else 0.5)
+        if not chrome.frame:
+            ax.tick_params(which="both", left=False, right=False, top=False,
+                           bottom=False, labelleft=False, labelbottom=False)
+            # Full bleed: the axes are the figure, which also makes
+            # ``ax.get_position()`` the identity box so the existing cell ->
+            # data cursor mapping keeps working unchanged.
+            self.fig.subplots_adjust(left=0.0, right=1.0, top=1.0, bottom=0.0)
+            return
         ax.tick_params(colors=COLOR_FG, labelsize=chrome.fontsize, which="both",
                        length=chrome.tick_len, width=0.5, pad=chrome.pad)
         ax.xaxis.label.set_color(COLOR_FG)
@@ -279,7 +349,9 @@ class SpectrumPlot:
             _, od = decimate(spec.wave, arr, req.xlim[0], req.xlim[1], ncols)
             ax.plot(xd, od, lw=0.7, color=COLOR_OVERLAY[i % len(COLOR_OVERLAY)],
                     label=name)
-        if req.overlays and ax.get_legend_handles_labels()[0]:
+        # In bare mode the legend would be the same unreadable smear as the
+        # tick labels; the terminal chrome paints it on the title row instead.
+        if chrome.frame and req.overlays and ax.get_legend_handles_labels()[0]:
             legend = ax.legend(loc="upper right", fontsize=chrome.fontsize,
                                 framealpha=0.3)
             for text in legend.get_texts():

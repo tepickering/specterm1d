@@ -26,6 +26,10 @@ class CellRect:
 class Renderer(Protocol):
     name: str
 
+    # True when the backend's pixels are too coarse for rendered text and the
+    # terminal should paint the axis decoration as glyphs instead.
+    text_chrome: bool = False
+
     def target_pixels(self, rows: int, cols: int) -> tuple[int, int]:
         """Pixel (width, height) the figure should be rendered at."""
         ...

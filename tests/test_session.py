@@ -32,11 +32,21 @@ def test_render_writes_to_the_output_stream():
     assert len(out.getvalue()) > 0
 
 
-def test_plot_rect_leaves_two_rows_for_status_and_message():
+def test_outer_rect_leaves_two_rows_for_status_and_message():
     session, _ = make_session()
-    rect = session.plot_rect()
+    rect = session.outer_rect()
     assert rect.rows == session.caps.rows - 2
     assert rect.cols == session.caps.cols
+
+
+def test_plot_rect_yields_a_gutter_when_the_terminal_draws_the_chrome():
+    session, _ = make_session()
+    outer, rect = session.outer_rect(), session.plot_rect()
+    if session.text_chrome:
+        assert rect.col > outer.col and rect.row > outer.row
+        assert rect.rows < outer.rows and rect.cols < outer.cols
+    else:
+        assert rect == outer
 
 
 def test_q_requests_exit():
@@ -54,7 +64,7 @@ def test_resize_updates_caps_and_plot_size():
     session, _ = make_session()
     session.on_resize(rows=40, cols=120)
     assert session.caps.rows == 40 and session.caps.cols == 120
-    assert session.plot_rect().rows == 38
+    assert session.outer_rect().rows == 38
 
 
 def test_arrow_keys_move_the_cursor():
