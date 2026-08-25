@@ -57,6 +57,7 @@ class Session:
         self.hint_index: int = 0
         self.log = SplotLog()
         self.showing_log = False
+        self.page_index = 0
         self.mouse_enabled = False
 
         self.pending: object | None = None      # AwaitKey / AwaitCursor
@@ -158,12 +159,70 @@ class Session:
         return f"{Path(path).name}  {self.view.entry.label}".strip()
 
     def render(self) -> None:
+        if self.showing_help or self.showing_log:
+            self._write_text_page()
+            return
         rect = self.plot_rect()
         width, height = self.renderer.target_pixels(rect.rows, rect.cols)
         self.plot.resize(width, height)
         rgba = self.plot.render(self.view.to_request(title=self.title()))
         self.renderer.draw(rgba, rect)
         self._write_footer()
+
+    # ---- full-screen text pages (? and :show) -----------------------
+    #
+    # Drawn as terminal text rather than into the figure. At halfblock
+    # resolution the figure is one pixel per column, where rendered text is
+    # illegible; the terminal's own glyphs are crisp on every backend.
+
+    def _text_page_lines(self) -> list[str]:
+        if self.showing_help:
+            return keymap.help_text(self.caps.cols)
+        return self.log.lines or ["(no measurements recorded yet)"]
+
+    def _text_page_count(self) -> tuple[int, int]:
+        """(lines per page, number of pages)."""
+        per_page = max(self.plot_rect().rows - 1, 1)
+        lines = self._text_page_lines()
+        return per_page, max((len(lines) + per_page - 1) // per_page, 1)
+
+    def _write_text_page(self) -> None:
+        lines = self._text_page_lines()
+        per_page, pages = self._text_page_count()
+        self.page_index = min(self.page_index, pages - 1)
+        start = self.page_index * per_page
+
+        out = [CLEAR_SCREEN]
+        for row, line in enumerate(lines[start:start + per_page], start=1):
+            out.append(f"\x1b[{row};1H" + line[: self.caps.cols])
+        footer = (f"-- {'help' if self.showing_help else 'log'} "
+                  f"page {self.page_index + 1}/{pages} -- "
+                  "<space> next, b back, any other key closes")
+        out.append(f"\x1b[{self.caps.rows};1H\x1b[7m"
+                   f"{footer[: self.caps.cols].ljust(self.caps.cols)}\x1b[0m")
+        self.out.write("".join(out))
+        self.out.flush()
+
+    def _close_text_page(self) -> None:
+        self.showing_help = False
+        self.showing_log = False
+        self.page_index = 0
+        self.renderer.teardown()     # the plot must repaint in full
+        self.message("")
+
+    def _handle_text_page(self, key: Key) -> bool:
+        _, pages = self._text_page_count()
+        forward = key.name == "pagedown" or (key.name == "char" and key.char == " ")
+        back = key.name == "pageup" or (key.name == "char" and key.char == "b")
+
+        if back:
+            self.page_index = max(self.page_index - 1, 0)
+            return True
+        if forward and self.page_index + 1 < pages:
+            self.page_index += 1
+            return True
+        self._close_text_page()
+        return True
 
     def _write_footer(self) -> None:
         rows = self.caps.rows
@@ -226,6 +285,9 @@ class Session:
             return True
         if key.name == "eof":
             return False
+
+        if self.showing_help or self.showing_log:
+            return self._handle_text_page(key)
 
         if key.name == "mouse":
             if self.mouse_enabled:

@@ -333,3 +333,66 @@ def test_window_submode_unknown_key_is_reported():
     session, _ = make_session()
     press(session, "w", "Q")
     assert "Q" in session.last_message
+
+
+def test_question_mark_actually_renders_the_help_text():
+    session, out = make_session()
+    press(session, "?")
+    session.render()
+    text = out.getvalue()
+    assert "splot keybindings" in text
+    assert "equivalent width" in text
+    assert "page 1/" in text
+
+
+def test_help_page_advances_with_space_and_closes_on_another_key():
+    session, _ = make_session()
+    press(session, "?")
+    session.render()
+    assert session.page_index == 0
+    press(session, " ")
+    assert session.page_index == 1
+    press(session, "b")
+    assert session.page_index == 0
+    press(session, "x")                 # any other key closes
+    assert session.showing_help is False
+
+
+def test_help_paging_stops_at_the_last_page_and_closes():
+    session, _ = make_session()
+    press(session, "?")
+    for _ in range(200):
+        session.handle(Key("char", " "))
+        if not session.showing_help:
+            break
+    assert session.showing_help is False
+
+
+def test_help_keys_do_not_reach_the_normal_dispatch():
+    # 'q' must page-close, not quit the session.
+    session, _ = make_session()
+    press(session, "?")
+    assert session.handle(Key("char", "q")) is True
+    assert session.showing_help is False
+
+
+def test_show_renders_the_measurement_log():
+    session, out = make_session()
+    session.log.record("e", center=5183.6, cont=1.0, flux=-0.5, eqw=0.5)
+    press(session, ":")
+    for ch in "show":
+        session.handle(Key("char", ch))
+    session.handle(Key("enter"))
+    session.render()
+    assert "5183.6" in out.getvalue()
+    assert "log page 1/" in out.getvalue()
+
+
+def test_show_on_an_empty_log_says_so():
+    session, out = make_session()
+    press(session, ":")
+    for ch in "show":
+        session.handle(Key("char", ch))
+    session.handle(Key("enter"))
+    session.render()
+    assert "no measurements recorded yet" in out.getvalue()

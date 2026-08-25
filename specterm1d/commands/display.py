@@ -212,7 +212,9 @@ def interrupt(session):
 @command("help.page")
 def help_page(session):
     session.showing_help = not session.showing_help
-    session.message("help" if session.showing_help else "")
+    session.page_index = 0
+    if not session.showing_help:
+        session._close_text_page()
 
 
 @command("help.cycle")

@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
+from matplotlib.ticker import MaxNLocator
 
 from specterm1d.spec import Spec
 
@@ -22,6 +23,46 @@ COLOR_LINE = "#4aa3ff"
 COLOR_SIGMA = "#2f5d8a"
 COLOR_MASK = "#c8503c"
 COLOR_OVERLAY = ("#e0a030", "#50b070", "#a070d0")
+
+
+@dataclass(frozen=True)
+class Chrome:
+    """Axis decoration scaled to the pixel budget."""
+
+    fontsize: float
+    ticks: int | None          # None leaves matplotlib's own locator alone
+    tick_len: float
+    pad: float
+    margins: tuple[float, float, float, float]   # left, right, top, bottom
+    title: bool
+    xlabel: bool
+    ylabel: bool
+    minor_ticks: bool
+
+
+# The halfblock backend renders one pixel per terminal column and two per row,
+# so an 80x24 terminal asks for an 80x44 figure. Default 9pt labels are 12.5 px
+# tall there - over a quarter of the figure - and collide into unreadable mush.
+# Below roughly 500 px the whole chrome has to shrink with the figure, and the
+# y label goes first because horizontal pixels are the scarcest.
+#
+# CHROME_FULL's right margin is 0.975 rather than 0.99 because the latter
+# clipped the final x tick label, rendering 9000 as 900.
+CHROME_FULL = Chrome(8, None, 3.5, 3.5, (0.09, 0.975, 0.93, 0.12),
+                     True, True, True, True)
+CHROME_SMALL = Chrome(5, 4, 1.5, 1.0, (0.13, 0.995, 0.90, 0.26),
+                      True, True, False, False)
+CHROME_TINY = Chrome(4, 3, 1.0, 0.8, (0.17, 0.995, 0.99, 0.17),
+                     False, False, False, False)
+
+
+def chrome_for(width_px: float, height_px: float) -> Chrome:
+    """Pick the decoration that fits a figure of this size."""
+    if width_px >= 500 and height_px >= 240:
+        return CHROME_FULL
+    if width_px >= 150 and height_px >= 70:
+        return CHROME_SMALL
+    return CHROME_TINY
 
 
 def masked_flux(spec: Spec) -> np.ndarray:
@@ -127,21 +168,30 @@ class SpectrumPlot:
                           facecolor=COLOR_BG)
         FigureCanvasAgg(self.fig)
         self.ax = self.fig.add_subplot(111)
-        self._style_axes()
-        # right=0.99 clipped the final x tick label ('9000' rendering as
-        # '900'); leave room for half a label at each end.
-        self.fig.subplots_adjust(left=0.09, right=0.975, top=0.93, bottom=0.12)
+        self._style_axes(self.chrome())
 
-    def _style_axes(self) -> None:
+    def chrome(self) -> Chrome:
+        width_px, height_px = self.fig.get_size_inches() * self.dpi
+        return chrome_for(width_px, height_px)
+
+    def _style_axes(self, chrome: Chrome) -> None:
         ax = self.ax
         ax.set_facecolor(COLOR_BG)
         for spine in ax.spines.values():
             spine.set_color(COLOR_FG)
-        ax.tick_params(colors=COLOR_FG, labelsize=8, which="both")
+            spine.set_linewidth(0.8 if chrome.minor_ticks else 0.5)
+        ax.tick_params(colors=COLOR_FG, labelsize=chrome.fontsize, which="both",
+                       length=chrome.tick_len, width=0.5, pad=chrome.pad)
         ax.xaxis.label.set_color(COLOR_FG)
         ax.yaxis.label.set_color(COLOR_FG)
         ax.title.set_color(COLOR_FG)
-        ax.minorticks_on()
+        if chrome.minor_ticks:
+            ax.minorticks_on()
+        if chrome.ticks is not None:
+            ax.xaxis.set_major_locator(MaxNLocator(chrome.ticks))
+            ax.yaxis.set_major_locator(MaxNLocator(chrome.ticks))
+        left, right, top, bottom = chrome.margins
+        self.fig.subplots_adjust(left=left, right=right, top=top, bottom=bottom)
 
     @staticmethod
     def _elide(text: str, keep: int) -> str:
@@ -197,7 +247,8 @@ class SpectrumPlot:
     def render(self, req: PlotRequest) -> np.ndarray:
         ax = self.ax
         ax.clear()
-        self._style_axes()
+        chrome = self.chrome()
+        self._style_axes(chrome)
 
         spec = req.spec
         ncols = int(self.fig.get_size_inches()[0] * self.dpi)
@@ -229,7 +280,8 @@ class SpectrumPlot:
             ax.plot(xd, od, lw=0.7, color=COLOR_OVERLAY[i % len(COLOR_OVERLAY)],
                     label=name)
         if req.overlays and ax.get_legend_handles_labels()[0]:
-            legend = ax.legend(loc="upper right", fontsize=7, framealpha=0.3)
+            legend = ax.legend(loc="upper right", fontsize=chrome.fontsize,
+                                framealpha=0.3)
             for text in legend.get_texts():
                 text.set_color(COLOR_FG)
 
@@ -241,9 +293,14 @@ class SpectrumPlot:
 
         ax.set_xlim(*req.xlim)
         ax.set_ylim(*req.ylim)
-        ax.set_xlabel(req.xlabel)
-        ax.set_ylabel(req.ylabel)
-        ax.set_title(self.fit_title(req.title), fontsize=9)
+        ax.set_xlabel(req.xlabel if chrome.xlabel else "",
+                      fontsize=chrome.fontsize)
+        ax.set_ylabel(req.ylabel if chrome.ylabel else "",
+                      fontsize=chrome.fontsize)
+        # Explicit pad: matplotlib's default 6pt title pad is 8 px, which at
+        # halfblock scale pushes the title off the top of the figure.
+        ax.set_title(self.fit_title(req.title) if chrome.title else "",
+                     fontsize=chrome.fontsize + 1, pad=chrome.pad + 1.0)
 
         self.fig.canvas.draw()
         # A copy, not a view: buffer_rgba() aliases the renderer's own memory,

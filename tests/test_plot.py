@@ -193,3 +193,38 @@ def test_short_title_is_left_alone():
 
 def test_empty_title_is_left_alone():
     assert SpectrumPlot(320, 200).fit_title("") == ""
+
+
+def test_chrome_shrinks_with_the_figure():
+    from specterm1d.plot import chrome_for
+
+    # An 80-column terminal asks halfblock for an 80x44 figure. Default 9pt
+    # labels are a quarter of that height and collide into mush.
+    tiny = chrome_for(80, 44)
+    small = chrome_for(200, 96)
+    full = chrome_for(1200, 700)
+    assert tiny.fontsize < small.fontsize < full.fontsize
+    assert tiny.ticks == 3 and small.ticks == 4 and full.ticks is None
+
+
+def test_tiny_chrome_drops_the_labels_that_do_not_fit():
+    from specterm1d.plot import chrome_for
+
+    tiny = chrome_for(80, 44)
+    assert not (tiny.title or tiny.xlabel or tiny.ylabel)
+    # The y label goes first at small sizes: horizontal pixels are scarcest.
+    assert chrome_for(200, 96).xlabel and not chrome_for(200, 96).ylabel
+
+
+def test_small_figures_render_without_colliding_labels():
+    spec = build_spec(np.linspace(5670, 5698, 500), np.ones(500))
+    for width, height in ((80, 44), (200, 96)):
+        plot = SpectrumPlot(width, height)
+        rgba = plot.render(PlotRequest(spec=spec, xlim=(5670, 5698), ylim=(0, 2),
+                                       title="spec1d_long_name.fits  ORDER0108",
+                                       xlabel="Wavelength (Angstrom)",
+                                       ylabel="Flux"))
+        assert rgba.shape == (height, width, 4)
+        # The axes must not have been squeezed out of existence by the chrome.
+        box = plot.ax.get_position()
+        assert box.width > 0.5 and box.height > 0.3

@@ -73,8 +73,9 @@ def _cmd_nolog(session, args):
 
 def _cmd_show(session, args):
     session.showing_log = not session.showing_log
-    session.message(f"{len(session.log.lines)} log lines"
-                    if session.showing_log else "")
+    session.page_index = 0
+    if not session.showing_log:
+        session._close_text_page()
 
 
 def _cmd_units(session, args):
