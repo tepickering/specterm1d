@@ -109,7 +109,7 @@ def _fluxed_session():
     spec = build_spec(wave, np.full(100, 1.0),
                       flux_unit=u.Unit("1e-17 erg / (s cm2 AA)"))
     coll = SpecCollection(entries=[SpecEntry("a", {"v": spec}, "v")])
-    session, out = make_session()
+    session, _ = make_session()
     session.collection = coll
     session.view = ViewState(coll)
     session.view.reset_limits()

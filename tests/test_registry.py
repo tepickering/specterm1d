@@ -1,5 +1,4 @@
 # tests/test_registry.py
-from pathlib import Path
 
 import pytest
 

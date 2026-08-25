@@ -234,7 +234,7 @@ SHIFT_WINDOW = 0.75
 EXPAND_TOLERANCE = 0.001
 
 
-def _window_action(session, char):        # noqa: C901 - a flat key table
+def _window_action(session, char):
     view = session.view
     x1, x2 = view.xlim
     y1, y2 = view.ylim

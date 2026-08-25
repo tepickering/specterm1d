@@ -7,7 +7,6 @@ import pytest
 from specterm1d.plot import SpectrumPlot
 from specterm1d.session import Session
 from specterm1d.spec import SpecCollection, SpecEntry, build_spec
-from specterm1d.term.base import CellRect
 from specterm1d.term.caps import TerminalCaps
 from specterm1d.term.halfblock import HalfblockRenderer
 from specterm1d.term.input import Key

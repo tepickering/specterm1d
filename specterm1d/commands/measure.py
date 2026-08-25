@@ -4,7 +4,10 @@ from __future__ import annotations
 import numpy as np
 
 from specterm1d.fitting import (
-    fit_profile, gauss_from_width, region_stats, sumflux,
+    fit_profile,
+    gauss_from_width,
+    region_stats,
+    sumflux,
 )
 from specterm1d.keymap import command
 

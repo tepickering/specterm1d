@@ -143,6 +143,53 @@ class SpectrumPlot:
         ax.title.set_color(COLOR_FG)
         ax.minorticks_on()
 
+    @staticmethod
+    def _elide(text: str, keep: int) -> str:
+        """Drop the middle, favouring the tail so a trailing label survives."""
+        if len(text) <= keep:
+            return text
+        head = max(int((keep - 1) * 0.4), 1)
+        tail = max(keep - 1 - head, 1)
+        return f"{text[:head]}\u2026{text[-tail:]}"
+
+    def _title_width_px(self, text: str) -> float:
+        """Rendered width of a title-sized string, in device pixels."""
+        artist = self.ax.title
+        saved = artist.get_text()
+        artist.set_text(text)
+        try:
+            width = artist.get_window_extent(
+                self.fig.canvas.get_renderer()).width
+        finally:
+            artist.set_text(saved)
+        return float(width)
+
+    def fit_title(self, text: str) -> str:
+        """Elide the middle of a title too wide for the axes.
+
+        pypeit spec1d basenames run to about ninety characters before the
+        object label is appended, which overruns the axes and gets clipped -
+        losing the label, the part that says what you are looking at.
+
+        The width is measured with matplotlib rather than estimated from font
+        metrics: an estimate put the cut-off within one character of a real
+        pypeit title and let it through still clipped.
+        """
+        if not text:
+            return text
+        limit_px = (self.fig.get_size_inches()[0] * self.dpi
+                    * self.ax.get_position().width)
+        width = self._title_width_px(text)
+        if width <= limit_px:
+            return text
+
+        keep = max(int(len(text) * limit_px / width), 12)
+        out = self._elide(text, keep)
+        while keep > 13 and self._title_width_px(out) > limit_px:
+            keep -= 2
+            out = self._elide(text, keep)
+        return out
+
     def resize(self, width_px: int, height_px: int) -> None:
         self.fig.set_size_inches(width_px / self.dpi, height_px / self.dpi,
                                  forward=True)
@@ -196,7 +243,7 @@ class SpectrumPlot:
         ax.set_ylim(*req.ylim)
         ax.set_xlabel(req.xlabel)
         ax.set_ylabel(req.ylabel)
-        ax.set_title(req.title, fontsize=9)
+        ax.set_title(self.fit_title(req.title), fontsize=9)
 
         self.fig.canvas.draw()
         # A copy, not a view: buffer_rgba() aliases the renderer's own memory,

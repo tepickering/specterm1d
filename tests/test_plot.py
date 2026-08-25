@@ -3,7 +3,11 @@ import numpy as np
 import pytest
 
 from specterm1d.plot import (
-    PlotRequest, SpectrumPlot, autoscale, decimate, masked_flux,
+    PlotRequest,
+    SpectrumPlot,
+    autoscale,
+    decimate,
+    masked_flux,
 )
 from specterm1d.spec import build_spec
 
@@ -24,7 +28,7 @@ def test_masked_flux_does_not_mutate_the_spec():
 def test_decimate_returns_data_unchanged_below_threshold():
     x = np.linspace(0, 1, 100)
     y = x.copy()
-    xd, yd = decimate(x, y, 0.0, 1.0, ncols=50, threshold=4)
+    xd, _ = decimate(x, y, 0.0, 1.0, ncols=50, threshold=4)
     assert xd.size == 100
 
 
@@ -79,7 +83,7 @@ def test_autoscale_ignores_masked_pixels():
     # The masked pixel is a huge spike; it must not set the limits.
     spec = build_spec([1.0, 2, 3, 4], [1.0, 1e6, 2.0, 1.5],
                       mask=np.array([True, False, True, True]))
-    lo, hi = autoscale(spec, (0.0, 10.0), pad=0.0)
+    _, hi = autoscale(spec, (0.0, 10.0), pad=0.0)
     assert hi < 10.0
 
 
@@ -168,3 +172,24 @@ def test_render_stays_within_the_redraw_budget():
         plot.render(PlotRequest(spec=spec, xlim=(4500, 8500), ylim=(-4, 4)))
     elapsed = (time.perf_counter() - start) / 5
     assert elapsed < 0.10, f"redraw took {elapsed * 1000:.0f} ms"
+
+
+def test_long_title_is_elided_to_fit_the_figure():
+    # pypeit spec1d basenames overrun the axes and get clipped, taking the
+    # object label with them. The tail is favoured so the label survives.
+    plot = SpectrumPlot(640, 400)
+    title = ("spec1d_UVES.2009-04-20T01:35:52.269-SDSS-J0935+0924_"
+             "VLT_UVES_red_20090420T013552.269.fits  OBJ0497-MSC01-ORDER0108")
+    fitted = plot.fit_title(title)
+    assert len(fitted) < len(title)
+    assert "…" in fitted
+    assert fitted.endswith("ORDER0108")
+
+
+def test_short_title_is_left_alone():
+    plot = SpectrumPlot(640, 400)
+    assert plot.fit_title("tabular.fits  tabular") == "tabular.fits  tabular"
+
+
+def test_empty_title_is_left_alone():
+    assert SpectrumPlot(320, 200).fit_title("") == ""

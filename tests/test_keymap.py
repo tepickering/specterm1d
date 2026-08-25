@@ -2,8 +2,11 @@
 import pytest
 
 from specterm1d.keymap import (
-    AwaitCursor, AwaitKey, AwaitLine, DEFERRED, KEYMAP, command,
-    get_command, help_text,
+    DEFERRED,
+    KEYMAP,
+    command,
+    get_command,
+    help_text,
 )
 from specterm1d.term.input import Key
 from tests.test_session import make_session
@@ -25,7 +28,7 @@ def test_deferred_keys_are_marked_in_the_keymap():
 
 
 def test_no_deferred_key_has_been_rebound_to_something_else():
-    for key, reason in DEFERRED.items():
+    for key in DEFERRED:
         assert get_command(KEYMAP[key].name) is None
 
 

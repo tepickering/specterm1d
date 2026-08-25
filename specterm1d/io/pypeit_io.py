@@ -10,8 +10,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import numpy as np
-
 from specterm1d.io.registry import Loader, register
 from specterm1d.spec import SpecCollection, SpecEntry, SpecMeta, build_spec
 

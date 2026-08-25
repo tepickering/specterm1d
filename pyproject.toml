@@ -38,3 +38,21 @@ markers = ["devsuite: requires PypeIt-development-suite data on disk"]
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "C4", "SIM", "RUF"]
+ignore = [
+    # "%d" formatting in halfblock.py's per-cell hot loop is deliberate: it
+    # formats a tuple in one operation where an f-string needs three lookups.
+    "UP031",
+]
+# Do not add BLE001 or S110. Teardown swallows exceptions on purpose - the
+# terminal must never be left in raw mode, with a hidden cursor, or reporting
+# mouse events, and an exception on the way out would do exactly that.
+
+[tool.ruff.lint.per-file-ignores]
+# Importing these packages is what populates the loader, renderer and command
+# registries; the imports are the point, not accidental.
+"specterm1d/io/__init__.py" = ["F401"]
+"specterm1d/term/__init__.py" = ["F401"]
+"specterm1d/commands/__init__.py" = ["F401"]

@@ -169,7 +169,7 @@ def help_text(cols: int = 80) -> list[str]:
     lines = ["specterm1d - IRAF splot keybindings", ""]
 
     lines.append("Display and navigation")
-    for key, name, helptext in _ACTIVE:
+    for key, _name, helptext in _ACTIVE:
         shown = "<space>" if key == " " else key
         lines.extend(textwrap.wrap(f"  {shown:<8} {helptext}", width=cols,
                                    subsequent_indent=" " * 11) or [f"  {shown}"])

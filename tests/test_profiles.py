@@ -3,7 +3,11 @@ import numpy as np
 import pytest
 
 from specterm1d.fitting import (
-    fit_profile, gauss_from_width, gaussian, lorentzian, voigt,
+    fit_profile,
+    gauss_from_width,
+    gaussian,
+    lorentzian,
+    voigt,
 )
 
 FWHM_PER_SIGMA = 2.0 * np.sqrt(2.0 * np.log(2.0))

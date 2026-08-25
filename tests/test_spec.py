@@ -3,7 +3,11 @@ import numpy as np
 import pytest
 
 from specterm1d.spec import (
-    Spec, SpecEntry, SpecCollection, build_spec, ivar_to_sigma,
+    Spec,
+    SpecCollection,
+    SpecEntry,
+    build_spec,
+    ivar_to_sigma,
 )
 
 

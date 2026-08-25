@@ -10,18 +10,19 @@ try/finally, atexit, and the signal handlers alike, and is idempotent.
 from __future__ import annotations
 
 import atexit
+import contextlib
 import signal
 import sys
 from pathlib import Path
 
 import numpy as np
 
+from specterm1d import keymap
 from specterm1d.logfile import SplotLog
 from specterm1d.plot import SpectrumPlot
 from specterm1d.spec import SpecCollection
 from specterm1d.term.base import CellRect
 from specterm1d.term.caps import TerminalCaps
-from specterm1d import keymap
 from specterm1d.term.input import Key, KeyReader
 from specterm1d.view import ViewState
 
@@ -356,7 +357,7 @@ class Session:
             self.pending = None
             self.message(f"{binding.name} failed: {exc}")
             return True
-        return False if result is False else True
+        return result is not False
 
     def _terminal_size(self) -> tuple[int, int]:
         from specterm1d.term.caps import window_size
@@ -369,10 +370,8 @@ class Session:
     def run(self) -> None:
         atexit.register(self.teardown)
         for sig in (signal.SIGTERM, signal.SIGHUP):
-            try:
+            with contextlib.suppress(ValueError, OSError):
                 signal.signal(sig, lambda *_: (self.teardown(), sys.exit(1)))
-            except (ValueError, OSError):
-                pass
 
         try:
             self.out.write(HIDE_CURSOR + CLEAR_SCREEN)
@@ -394,10 +393,8 @@ class Session:
         if self._torn_down:
             return
         self._torn_down = True
-        try:
+        with contextlib.suppress(Exception):
             self.renderer.teardown()
-        except Exception:
-            pass
         try:
             if self.mouse_enabled:
                 self.out.write(MOUSE_OFF)

@@ -1,7 +1,9 @@
 """Importing this package registers every command handler."""
-from specterm1d.commands import colon  # noqa: F401
-from specterm1d.commands import display  # noqa: F401
-from specterm1d.commands import measure  # noqa: F401
-from specterm1d.commands import transform  # noqa: F401
+from specterm1d.commands import (
+    colon,
+    display,
+    measure,
+    transform,
+)
 
 __all__ = ["colon", "display", "measure", "transform"]

@@ -2,11 +2,13 @@
 import io
 
 import numpy as np
-import pytest
 
 from specterm1d.term.base import CellRect
 from specterm1d.term.halfblock import (
-    HalfblockRenderer, cells_from_rgba, quantize_256, render_cells,
+    HalfblockRenderer,
+    cells_from_rgba,
+    quantize_256,
+    render_cells,
 )
 
 UPPER_HALF = "▀"

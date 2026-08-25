@@ -1,5 +1,5 @@
 # tests/test_input.py
-from specterm1d.term.input import Key, parse_keys
+from specterm1d.term.input import parse_keys
 
 
 def names(buf):
@@ -52,7 +52,7 @@ def test_incomplete_escape_is_held_for_more_input():
 
 
 def test_incomplete_escape_completes_on_the_next_chunk():
-    keys, rest = parse_keys(b"\x1b[")
+    _, rest = parse_keys(b"\x1b[")
     keys2, rest2 = parse_keys(rest + b"A")
     assert [k.name for k in keys2] == ["up"]
     assert rest2 == b""

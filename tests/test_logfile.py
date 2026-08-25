@@ -6,10 +6,10 @@ from specterm1d.logfile import COLUMN_HEADER, SplotLog
 
 def test_column_header_matches_iraf_widths():
     # anshdr.x: "%10s%10s%10s%10s%10s%10s%10s"
-    assert COLUMN_HEADER == (
+    assert (
         f"{'center':>10}{'cont':>10}{'flux':>10}"
         f"{'eqw':>10}{'core':>10}{'gfwhm':>10}{'lfwhm':>10}"
-    )
+    ) == COLUMN_HEADER
     assert len(COLUMN_HEADER) == 70
 
 

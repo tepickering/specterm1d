@@ -1,7 +1,6 @@
 # tests/test_caps.py
 import pytest
 
-from specterm1d.term import caps as caps_mod
 from specterm1d.term.caps import TerminalCaps, choose_renderer, detect
 
 

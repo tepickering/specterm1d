@@ -1,5 +1,4 @@
 # tests/test_measure.py
-import numpy as np
 import pytest
 
 import specterm1d.commands  # noqa: F401

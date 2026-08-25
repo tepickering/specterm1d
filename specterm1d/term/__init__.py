@@ -1,7 +1,10 @@
 """Terminal backends. Importing this registers every available renderer."""
-from specterm1d.term.base import CellRect, Renderer  # noqa: F401
-from specterm1d.term.caps import (  # noqa: F401
-    TerminalCaps, choose_renderer, detect, register_renderer,
+from specterm1d.term.base import CellRect, Renderer
+from specterm1d.term.caps import (
+    TerminalCaps,
+    choose_renderer,
+    detect,
+    register_renderer,
 )
 from specterm1d.term.halfblock import HalfblockRenderer
 from specterm1d.term.iterm2 import ITerm2Renderer
@@ -17,7 +20,14 @@ register_renderer("iterm2", lambda caps, out: ITerm2Renderer(out, caps))
 register_renderer("sixel", lambda caps, out: SixelRenderer(out, caps))
 
 __all__ = [
-    "CellRect", "Renderer", "TerminalCaps",
-    "choose_renderer", "detect", "register_renderer",
-    "HalfblockRenderer", "KittyRenderer", "ITerm2Renderer", "SixelRenderer",
+    "CellRect",
+    "HalfblockRenderer",
+    "ITerm2Renderer",
+    "KittyRenderer",
+    "Renderer",
+    "SixelRenderer",
+    "TerminalCaps",
+    "choose_renderer",
+    "detect",
+    "register_renderer",
 ]

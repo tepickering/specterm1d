@@ -33,7 +33,9 @@ def _coordinate(token: str, lineno: int) -> float | None:
     try:
         return float(token)
     except ValueError:
-        raise ValueError(f"line {lineno}: {token!r} is not a number or '-'")
+        raise ValueError(
+            f"line {lineno}: {token!r} is not a number or '-'"
+        ) from None
 
 
 def parse_script(text: str) -> list[ScriptStep]:
@@ -46,7 +48,7 @@ def parse_script(text: str) -> list[ScriptStep]:
 
         if line.startswith(":"):
             steps.append(ScriptStep(None, None,
-                                    [":"] + list(line[1:]) + ["\n"]))
+                                    [":", *line[1:], "\n"]))
             continue
 
         parts = line.split()

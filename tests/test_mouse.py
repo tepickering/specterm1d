@@ -1,7 +1,5 @@
 # tests/test_mouse.py
-import io
 
-from specterm1d.session import Session
 from specterm1d.term.input import parse_keys, parse_sgr_mouse
 from tests.test_session import make_session
 

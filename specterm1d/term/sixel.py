@@ -80,7 +80,7 @@ def _rle(codes: np.ndarray) -> str:
     chars = [_SIXEL_CHARS[c - 63] for c in codes[starts].tolist()]
     return "".join([
         f"!{run}{char}" if run >= 4 else char * run
-        for char, run in zip(chars, lengths.tolist())
+        for char, run in zip(chars, lengths.tolist(), strict=True)
     ])
 
 

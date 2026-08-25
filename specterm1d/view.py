@@ -179,7 +179,7 @@ class ViewState:
             ylim = (ylim[1], ylim[0])
         markers = tuple(self.markers)
         if self.cursor_x is not None:
-            markers = markers + (self.cursor_x,)
+            markers = (*markers, self.cursor_x)
         ylabel = "Flux"
         if spec.flux_unit is not None:
             ylabel = f"Flux ({spec.flux_unit.to_string()})"

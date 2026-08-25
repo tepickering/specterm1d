@@ -56,15 +56,16 @@ def _specs_from_spectrum(sp, path: Path) -> list:
     out = []
     for i in range(flux_rows.shape[0]):
         out.append(
-            dict(
-                wave=wave,
-                flux=flux_rows[i],
-                sigma=None if sigma_rows is None else sigma_rows[i],
-                mask=None if mask_rows is None else mask_rows[i],
-                mask_convention="bad",   # specutils follows numpy: True == bad
-                wave_unit=sp.spectral_axis.unit,
-                flux_unit=sp.flux.unit,
-            )
+            {
+                "wave": wave,
+                "flux": flux_rows[i],
+                "sigma": None if sigma_rows is None else sigma_rows[i],
+                "mask": None if mask_rows is None else mask_rows[i],
+                # specutils follows numpy: True == bad
+                "mask_convention": "bad",
+                "wave_unit": sp.spectral_axis.unit,
+                "flux_unit": sp.flux.unit,
+            }
         )
     return out
 

@@ -2,8 +2,8 @@
 import numpy as np
 import pytest
 
-from specterm1d.io import registry
 import specterm1d.io  # noqa: F401
+from specterm1d.io import registry
 
 
 def test_pypeit_loaders_are_registered():

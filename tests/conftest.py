@@ -44,7 +44,7 @@ def synthetic_spec1d(tmp_path):
     there, which is the *harder* case: it exercises build_spec creating the
     coverage rather than merely agreeing with a mask that already has it.
     """
-    pypeit = pytest.importorskip("pypeit")
+    pytest.importorskip("pypeit")
     from pypeit.specobj import SpecObj
     from pypeit.specobjs import SpecObjs
 

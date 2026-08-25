@@ -10,7 +10,11 @@ from specterm1d.term.base import CellRect
 from specterm1d.term.iterm2 import ITerm2Renderer
 from specterm1d.term.kitty import KittyRenderer, kitty_chunks, png_bytes
 from specterm1d.term.sixel import (
-    PALETTE, SixelRenderer, build_lut, encode_sixel, quantize_palette,
+    PALETTE,
+    SixelRenderer,
+    build_lut,
+    encode_sixel,
+    quantize_palette,
 )
 
 

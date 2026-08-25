@@ -6,6 +6,7 @@ owns termios and SIGWINCH.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import select
@@ -172,10 +173,8 @@ class KeyReader:
         self.close()
 
     def _on_winch(self, *_args) -> None:
-        try:
+        with contextlib.suppress(OSError):
             os.write(self._wake_w, b"W")
-        except OSError:
-            pass
 
     def close(self) -> None:
         if self._prev_handler is not None:
@@ -186,10 +185,8 @@ class KeyReader:
             self._saved = None
         for fd in (self._wake_r, self._wake_w):
             if fd is not None:
-                try:
+                with contextlib.suppress(OSError):
                     os.close(fd)
-                except OSError:
-                    pass
         self._wake_r = self._wake_w = None
 
     def read(self, timeout: float | None = None) -> list[Key]:
@@ -201,10 +198,8 @@ class KeyReader:
         events: list[Key] = []
 
         if self._wake_r in ready:
-            try:
+            with contextlib.suppress(OSError):
                 os.read(self._wake_r, 64)
-            except OSError:
-                pass
             events.append(Key("resize"))
 
         if self.fd in ready:
