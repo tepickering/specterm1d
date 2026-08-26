@@ -13,6 +13,7 @@ import atexit
 import contextlib
 import signal
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -21,10 +22,11 @@ from specterm1d import keymap
 from specterm1d.logfile import SplotLog
 from specterm1d.plot import COLOR_OVERLAY, SpectrumPlot, tick_values
 from specterm1d.spec import SpecCollection
-from specterm1d.term.base import CellRect
+from specterm1d.term.base import CellRect, Motion
 from specterm1d.term.caps import TerminalCaps
 from specterm1d.term.chrome import ChromeLayout, layout_for, render_chrome
 from specterm1d.term.input import Key, KeyReader
+from specterm1d.transcript import Transcript
 from specterm1d.view import ViewState
 
 HIDE_CURSOR = "\x1b[?25l"
@@ -36,6 +38,10 @@ MOUSE_OFF = "\x1b[?1000;1002;1006l"
 # Arrow-key step as a fraction of the visible x range.
 CURSOR_STEP = 0.002
 CURSOR_STEP_FAST = 0.05
+
+# The GUI loop polls rather than blocking on a file descriptor, so it must
+# poll faster than a person types. pump() on an idle window is microseconds.
+POLL_INTERVAL = 0.01
 
 
 class Session:
@@ -64,6 +70,12 @@ class Session:
         self.text_chrome = bool(getattr(renderer, "text_chrome", False)
                                 and caps is not None and caps.is_tty)
         self.plot.bare = self.text_chrome
+        # An interactive backend owns its own window and event loop: keys come
+        # from poll(), text scrolls in the terminal, and raw mode never starts.
+        self.interactive = bool(getattr(renderer, "interactive", False))
+        # Built in both modes so nothing branches on its existence; the
+        # terminal path simply never uses it.
+        self.transcript = Transcript(self.out)
         self._chrome_cache: str | None = None
         self.mouse_enabled = False
 
@@ -105,6 +117,16 @@ class Session:
         ylo, yhi = self.view.ylim
         self.view.cursor_x = float(xlo + tx * (xhi - xlo))
         self.view.cursor_y = float(ylo + ty * (yhi - ylo))
+
+    def on_motion(self, x: float, y: float) -> None:
+        """Pointer position from the graphics window, already in data units.
+
+        No ax.get_position() arithmetic and no cell quantization - a
+        matplotlib motion event carries event.xdata directly. Must not
+        trigger a render: at 1200x800 a frame costs 182 ms.
+        """
+        self.view.cursor_x = float(x)
+        self.view.cursor_y = float(y)
 
     def load_path(self, path) -> bool:
         from specterm1d.io import registry
@@ -188,7 +210,20 @@ class Session:
 
     def render(self) -> None:
         if self.showing_help or self.showing_log:
+            if self.interactive:
+                # No paging in two-window mode: the key reference and the
+                # measurement log scroll past, as they did in splot.
+                for line in self._text_page_lines():
+                    self.transcript.line(line)
+                self.showing_help = self.showing_log = False
+                self.page_index = 0
+                return
             self._write_text_page()
+            return
+        if self.interactive:
+            # No CellRect, no text chrome, no footer, and no plot.resize():
+            # the window drives the figure size, not the other way round.
+            self.plot.draw(self.view.to_request(title=self.title()))
             return
         layout = self.chrome_layout() if self.text_chrome else None
         rect = layout.plot if layout else self.outer_rect()
@@ -259,7 +294,8 @@ class Session:
         self.showing_help = False
         self.showing_log = False
         self.page_index = 0
-        self.renderer.teardown()     # the plot must repaint in full
+        if not self.interactive:
+            self.renderer.teardown()     # the plot must repaint in full
         self._chrome_cache = None
         self.message("")
 
@@ -317,6 +353,14 @@ class Session:
 
     def message(self, text: str) -> None:
         self.last_message = text
+        if self.interactive and text:
+            self.transcript.line(text)
+
+    def echo(self, text: str) -> None:
+        """An in-progress prompt: overwritten in place, not appended."""
+        self.last_message = text
+        if self.interactive:
+            self.transcript.prompt(text)
 
     # ---- dispatch ---------------------------------------------------
 
@@ -397,7 +441,7 @@ class Session:
 
     def await_line(self, prompt: str, handler) -> None:
         self.pending = keymap.AwaitLine(prompt, handler)
-        self.message(prompt)
+        self.echo(prompt)
 
     def cancel_pending(self, why: str = "cancelled") -> None:
         self.pending = None
@@ -415,10 +459,10 @@ class Session:
                 state.handler(self, state.buffer)
             elif key.name == "backspace":
                 state.buffer = state.buffer[:-1]
-                self.message(state.prompt + state.buffer)
+                self.echo(state.prompt + state.buffer)
             elif key.name == "char":
                 state.buffer += key.char
-                self.message(state.prompt + state.buffer)
+                self.echo(state.prompt + state.buffer)
             return True
 
         if key.name == "escape":
@@ -482,6 +526,35 @@ class Session:
 
     # ---- lifecycle --------------------------------------------------
 
+    def _run_gui(self) -> None:
+        """The two-window loop: the window owns interaction, we own state.
+
+        Render on state change only. Session.run()'s terminal loop redraws
+        unconditionally every 0.25 s; at 182 ms a frame in a 1200x800 window
+        that is most of a core spent redrawing an unchanged plot, and it makes
+        pointer tracking impossible.
+        """
+        self.render()
+        running, dirty = True, False
+        while running and not self.renderer.closed:
+            self.renderer.pump()
+            for event in self.renderer.poll():
+                if isinstance(event, Motion):
+                    self.on_motion(event.x, event.y)
+                    continue
+                running = self.handle(event)
+                dirty = True
+                if not running:
+                    break
+            if self.renderer.take_resized():
+                dirty = True
+            if running and dirty:
+                self.render()
+                dirty = False
+            self.renderer.set_title(self.status_line())
+            time.sleep(POLL_INTERVAL)
+        self.finished = True
+
     def run(self) -> None:
         atexit.register(self.teardown)
         for sig in (signal.SIGTERM, signal.SIGHUP):
@@ -489,6 +562,9 @@ class Session:
                 signal.signal(sig, lambda *_: (self.teardown(), sys.exit(1)))
 
         try:
+            if self.interactive:
+                self._run_gui()
+                return
             self.out.write(HIDE_CURSOR + CLEAR_SCREEN)
             with KeyReader() as reader:
                 self.render()
@@ -510,6 +586,9 @@ class Session:
         self._torn_down = True
         with contextlib.suppress(Exception):
             self.renderer.teardown()
+        if self.interactive:
+            # No raw mode, no hidden cursor and no mouse reporting to restore.
+            return
         try:
             if self.mouse_enabled:
                 self.out.write(MOUSE_OFF)
