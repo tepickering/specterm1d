@@ -127,6 +127,9 @@ class Session:
         """
         self.view.cursor_x = float(x)
         self.view.cursor_y = float(y)
+        crosshair = getattr(self.renderer, "crosshair", None)
+        if crosshair is not None:
+            crosshair(x, y)
 
     def load_path(self, path) -> bool:
         from specterm1d.io import registry
@@ -224,6 +227,9 @@ class Session:
             # No CellRect, no text chrome, no footer, and no plot.resize():
             # the window drives the figure size, not the other way round.
             self.plot.draw(self.view.to_request(title=self.title()))
+            invalidate = getattr(self.renderer, "invalidate", None)
+            if invalidate is not None:
+                invalidate()
             return
         layout = self.chrome_layout() if self.text_chrome else None
         rect = layout.plot if layout else self.outer_rect()

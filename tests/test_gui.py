@@ -350,3 +350,85 @@ def test_a_real_window_opens_draws_a_frame_and_closes(clean_rcparams):
         assert renderer.closed is False
     finally:
         renderer.teardown()
+
+
+# ---- crosshair -----------------------------------------------------
+
+class BlitCanvas(FakeCanvas):
+    def __init__(self, size=(640, 480)):
+        super().__init__(size)
+        self.copies = 0
+        self.restores = 0
+        self.blits = 0
+
+    def copy_from_bbox(self, bbox):
+        self.copies += 1
+        return object()
+
+    def restore_region(self, background):
+        self.restores += 1
+
+    def blit(self, bbox):
+        self.blits += 1
+
+
+def blit_open(fig, size, backends=None):
+    canvas = BlitCanvas()
+    return canvas, FakeManager(canvas), "fake"
+
+
+def blitting_renderer():
+    from specterm1d.plot import SpectrumPlot
+
+    plot = SpectrumPlot(400, 300)
+    renderer = gui.GuiRenderer(size=(400, 300), open_fn=blit_open)
+    renderer.attach(plot)
+    return renderer, plot
+
+
+def test_the_first_crosshair_captures_the_background_and_blits():
+    renderer, _ = blitting_renderer()
+    renderer.crosshair(5500.0, 1.0)
+    assert renderer.canvas.copies == 1
+    assert renderer.canvas.restores == 1
+    assert renderer.canvas.blits == 1
+
+
+def test_later_crosshairs_reuse_the_captured_background():
+    # The whole point: a few milliseconds per motion event, not 182.
+    renderer, _ = blitting_renderer()
+    for x in (5100.0, 5200.0, 5300.0):
+        renderer.crosshair(x, 1.0)
+    assert renderer.canvas.copies == 1
+    assert renderer.canvas.blits == 3
+
+
+def test_the_crosshair_follows_the_pointer():
+    renderer, _ = blitting_renderer()
+    renderer.crosshair(5100.0, 1.0)
+    renderer.crosshair(5900.0, 2.0)
+    assert renderer._vline.get_xdata()[0] == pytest.approx(5900.0)
+    assert renderer._hline.get_ydata()[0] == pytest.approx(2.0)
+
+
+def test_invalidate_drops_the_background_and_the_artists():
+    # plot.draw() calls ax.clear(), which destroys them; a stale background
+    # would blit the previous frame back over the new one.
+    renderer, _ = blitting_renderer()
+    renderer.crosshair(5100.0, 1.0)
+    renderer.invalidate()
+    assert renderer._vline is None and renderer._hline is None
+    renderer.crosshair(5200.0, 1.0)
+    assert renderer.canvas.copies == 2
+
+
+def test_a_resize_invalidates_the_background():
+    renderer, _ = blitting_renderer()
+    renderer.crosshair(5100.0, 1.0)
+    renderer.canvas.callbacks["resize_event"](FakeEvent())
+    renderer.crosshair(5200.0, 1.0)
+    assert renderer.canvas.copies == 2
+
+
+def test_the_crosshair_is_a_no_op_before_attach():
+    gui.GuiRenderer(open_fn=blit_open).crosshair(1.0, 2.0)

@@ -13,6 +13,7 @@ import importlib
 import os
 import sys
 
+from specterm1d.plot import COLOR_FG
 from specterm1d.term.base import Motion
 from specterm1d.term.input import Key
 
@@ -162,6 +163,9 @@ class GuiRenderer:
         self.closed = False
         self.resized = False
         self._events: list = []
+        self._background = None
+        self._vline = None
+        self._hline = None
 
     # ---- renderer protocol ------------------------------------------
 
@@ -234,3 +238,42 @@ class GuiRenderer:
 
     def _on_resize(self, _event) -> None:
         self.resized = True
+        self.invalidate()
+
+    # ---- crosshair ---------------------------------------------------
+
+    def invalidate(self) -> None:
+        """Drop the cached background and the crosshair artists.
+
+        plot.draw() calls ax.clear(), which destroys the artists outright, and
+        a background captured from the previous frame would blit the old plot
+        back over the new one.
+        """
+        self._background = None
+        self._vline = self._hline = None
+
+    def crosshair(self, x: float, y: float) -> None:
+        """Move the crosshair by blitting - a few ms, not a full redraw.
+
+        splot drew one because a bare pointer is unreadable against the axes.
+        At 182 ms a frame it cannot be a full render, so the clean plot is
+        captured once and restored under each new pair of lines.
+        """
+        if self.canvas is None or self.plot is None:
+            return
+        ax = self.plot.ax
+        if self._background is None:
+            # Captured before the artists exist, so the cached region is the
+            # plot alone.
+            self._background = self.canvas.copy_from_bbox(ax.bbox)
+        if self._vline is None:
+            self._vline = ax.axvline(x, color=COLOR_FG, lw=0.7, alpha=0.7,
+                                     animated=True)
+            self._hline = ax.axhline(y, color=COLOR_FG, lw=0.7, alpha=0.7,
+                                     animated=True)
+        self._vline.set_xdata([x, x])
+        self._hline.set_ydata([y, y])
+        self.canvas.restore_region(self._background)
+        ax.draw_artist(self._vline)
+        ax.draw_artist(self._hline)
+        self.canvas.blit(ax.bbox)

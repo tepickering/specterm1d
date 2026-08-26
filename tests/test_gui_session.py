@@ -300,3 +300,34 @@ def test_a_terminal_renderer_passes_straight_through_attachment():
     renderer = HalfblockRenderer(out=io.StringIO())
     assert attach_or_fall_back(renderer, SpectrumPlot(116, 82), caps,
                                out=io.StringIO()) is renderer
+
+
+# ---- crosshair wiring ----------------------------------------------
+
+class CrosshairGui(FakeGui):
+    def __init__(self, script=()):
+        super().__init__(script)
+        self.crosshairs = []
+        self.invalidations = 0
+
+    def crosshair(self, x, y):
+        self.crosshairs.append((x, y))
+
+    def invalidate(self):
+        self.invalidations += 1
+
+
+def test_motion_moves_the_crosshair_without_a_render():
+    session, _, _ = make_gui_session()
+    session.renderer = CrosshairGui()
+    session.renderer.attach(session.plot)
+    session.on_motion(5500.0, 3.0)
+    assert session.renderer.crosshairs == [(5500.0, 3.0)]
+
+
+def test_a_full_render_invalidates_the_crosshair_background():
+    session, _, _ = make_gui_session()
+    session.renderer = CrosshairGui()
+    session.renderer.attach(session.plot)
+    session.render()
+    assert session.renderer.invalidations == 1
