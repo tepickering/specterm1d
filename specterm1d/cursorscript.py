@@ -90,7 +90,12 @@ def run_script(session, steps: list[ScriptStep]) -> None:
         if step.x is not None:
             session.view.cursor_x = step.x
         if step.y is not None:
+            # An explicit y is a deliberate placement, exactly as moving the
+            # cursor there by hand would be.
             session.view.cursor_y = step.y
+            session.view.lock_cursor_y()
+        else:
+            session.view.follow_flux()
         for char in step.keys:
             if session.handle(_as_key(char)) is False:
                 session.finished = True

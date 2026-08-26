@@ -80,10 +80,15 @@ def _report_fit(session, fit, kind_label: str) -> None:
     session.log.record("k", center=fit.center, cont=fit.cont, flux=fit.flux,
                        eqw=fit.eqw, peak=fit.peak, gfwhm=fit.gfwhm,
                        lfwhm=fit.lfwhm)
+    # The numbers still go out - they are usually about right, and refusing
+    # to show them helps nobody - but a fit sitting on its limits is not a
+    # measurement, and saying so beats a plausible-looking width in the log.
+    warning = (f"  [{fit.at_bound} hit the marked range - check the continuum "
+               "marks]") if fit.at_bound else ""
     session.message(
         f"{kind_label}: center = {fit.center:9.7g}, eqw = {fit.eqw:9.4g}, "
         f"flux = {fit.flux:9.6g}, core = {fit.peak:9.6g}, "
-        f"gfwhm = {fit.gfwhm:9.4g}, lfwhm = {fit.lfwhm:9.4g}"
+        f"gfwhm = {fit.gfwhm:9.4g}, lfwhm = {fit.lfwhm:9.4g}{warning}"
     )
 
 

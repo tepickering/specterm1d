@@ -79,6 +79,16 @@ class ViewState:
 
     cursor_x: float | None = None
     cursor_y: float | None = None
+    cursor_y_locked: bool = False
+    """True once the cursor's y has been placed deliberately.
+
+    Until then it rides the spectrum, which is where a continuum mark almost
+    always wants to be. It matters most where a terminal cell of y is worth
+    hundreds of times the continuum level: mid-window, the old default, is
+    then a continuum guess so wrong that the profile fit has nothing to work
+    with. Moving y yourself - the arrow keys, the pointer, an 'h' level -
+    locks it, because that is the whole point of those.
+    """
     markers: list[float] = field(default_factory=list)
     fits: list[tuple[np.ndarray, np.ndarray]] = field(default_factory=list)
     overrides: dict[str, Spec] = field(default_factory=dict)
@@ -134,6 +144,9 @@ class ViewState:
         )
 
     def reset_limits(self) -> None:
+        # A fresh window is a fresh cursor: whatever y was chosen was chosen
+        # against limits that no longer exist.
+        self.cursor_y_locked = False
         spec = self.display_spec()
         good = spec.wave[spec.good]
         if good.size == 0:
@@ -142,6 +155,22 @@ class ViewState:
             return
         self.xlim = (float(good.min()), float(good.max()))
         self.ylim = autoscale(spec, self.xlim, zero_base=self.zero_base)
+
+    def follow_flux(self) -> None:
+        """Put the cursor's y on the spectrum, unless it has been placed."""
+        if self.cursor_y_locked or self.cursor_x is None:
+            return
+        spec = self.display_spec()
+        if spec.npix == 0:
+            return
+        pixel = int(np.clip(np.searchsorted(spec.wave, self.cursor_x),
+                            0, spec.npix - 1))
+        value = float(spec.flux[pixel])
+        if np.isfinite(value):
+            self.cursor_y = value
+
+    def lock_cursor_y(self) -> None:
+        self.cursor_y_locked = True
 
     def rescale_y(self) -> None:
         spec = self.display_spec()

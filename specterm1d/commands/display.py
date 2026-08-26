@@ -106,6 +106,7 @@ def _goto(session, index: int):
     if session.view.window_reset:
         session.view.reset_limits()
         session.view.cursor_x = float(np.mean(session.view.xlim))
+        session.view.follow_flux()
     session.message(f"{session.view.entry.label} "
                     f"({index + 1}/{len(session.collection)})")
 

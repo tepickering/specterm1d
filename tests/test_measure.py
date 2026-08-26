@@ -81,3 +81,63 @@ def test_measurement_draws_a_marker_on_the_plot():
     mark(session, 5200.0, 1.0)
     mark(session, 5400.0, 1.0)
     assert session.view.markers
+
+
+# ---- an unreliable fit says so -------------------------------------
+
+def _bad_continuum_session():
+    """A session marked up for a fit whose continuum is far too high."""
+    import io
+
+    import numpy as np
+
+    from specterm1d.plot import SpectrumPlot
+    from specterm1d.session import Session
+    from specterm1d.spec import SpecCollection, SpecEntry, build_spec
+    from specterm1d.term.caps import TerminalCaps
+    from specterm1d.term.halfblock import HalfblockRenderer
+
+    wave = np.linspace(4995.0, 5025.0, 400)
+    flux = 6000.0 + 4.3e6 * np.exp(-0.5 * ((wave - 5009.2) / 1.7) ** 2)
+    spec = build_spec(wave, flux, sigma=np.sqrt(flux) + 13.0)
+    coll = SpecCollection(entries=[SpecEntry("A", {"F": spec}, "F")], path="x")
+    caps = TerminalCaps(False, False, False, True, 24, 80, None, None, True)
+    out = io.StringIO()
+    session = Session(coll, HalfblockRenderer(out=out), SpectrumPlot(80, 44),
+                      out, caps)
+    session.view.reset_limits()
+    return session
+
+
+def test_a_saturated_fit_is_flagged_in_the_message():
+    session = _bad_continuum_session()
+    session.view.cursor_y = 2144858.0
+    for char in "kg":
+        session.handle(Key("char", char))
+    for x in (4995.0, 5025.0):
+        session.view.cursor_x = x
+        session.handle(Key("char", " "))
+    assert "check the continuum" in session.last_message
+
+
+def test_a_saturated_fit_is_still_reported_and_logged():
+    session = _bad_continuum_session()
+    session.view.cursor_y = 2144858.0
+    for char in "kg":
+        session.handle(Key("char", char))
+    for x in (4995.0, 5025.0):
+        session.view.cursor_x = x
+        session.handle(Key("char", " "))
+    assert "center" in session.last_message
+    assert session.log.lines
+
+
+def test_a_good_fit_carries_no_warning():
+    session = _bad_continuum_session()
+    session.view.cursor_y = 6000.0
+    for char in "kg":
+        session.handle(Key("char", char))
+    for x in (4995.0, 5025.0):
+        session.view.cursor_x = x
+        session.handle(Key("char", " "))
+    assert "check the continuum" not in session.last_message

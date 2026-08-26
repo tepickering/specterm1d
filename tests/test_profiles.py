@@ -163,3 +163,84 @@ def test_gauss_from_width_reports_an_unmeasurable_line():
     flux = np.ones_like(wave)          # no line at all
     fit = gauss_from_width(wave, flux, 5500.0, 1.0, "c")
     assert np.isnan(fit.gfwhm)
+
+
+# ---- a badly placed continuum must not run away --------------------
+
+def _emission_line():
+    """A 2500:1 spectrum with Poisson-ish errors: one bright line over a
+    faint continuum.
+
+    Both halves matter. The dynamic range is what puts the continuum at 5% of
+    the autoscaled y range, so a terminal cell of cursor y is worth dozens of
+    times the continuum level and the marks land far above it. The sigma array
+    is what makes the solver run away when they do: it weights the seed, and
+    on a too-high continuum the most extreme weighted residual is a continuum
+    pixel, not the line.
+    """
+    wave = np.linspace(4995.0, 5025.0, 400)
+    flux = 6000.0 + 4.3e6 * np.exp(-0.5 * ((wave - 5009.2) / 1.7) ** 2)
+    return wave, flux, np.sqrt(flux) + 13.0
+
+
+# Two terminal cells' worth of cursor y on that spectrum, and the middle of
+# the autoscaled window - where the cursor starts if you never move it.
+TWO_CELLS_HIGH = 230164.0
+MID_WINDOW = 2144858.0
+
+
+def test_the_centre_stays_inside_the_marked_range():
+    wave, flux, sigma = _emission_line()
+    for y in (6000.0, 115082.0, TWO_CELLS_HIGH, MID_WINDOW):
+        fit = fit_profile(wave, flux, sigma, 4995.0, y, 5025.0, y, "g")
+        assert 4995.0 <= fit.center <= 5025.0
+
+
+def test_a_continuum_marked_far_too_high_still_finds_the_line():
+    # The bug: an unbounded solver seeded on the most extreme weighted
+    # residual walked off to a centre of 10992 A and a width of 10939 A from
+    # marks at 4995-5025.
+    wave, flux, sigma = _emission_line()
+    fit = fit_profile(wave, flux, sigma, 4995.0, TWO_CELLS_HIGH,
+                      5025.0, TWO_CELLS_HIGH, "g")
+    assert fit.center == pytest.approx(5009.2, abs=5.0)
+
+
+def test_the_width_cannot_exceed_the_marked_span():
+    wave, flux, sigma = _emission_line()
+    fit = fit_profile(wave, flux, sigma, 4995.0, MID_WINDOW,
+                      5025.0, MID_WINDOW, "g")
+    assert fit.gfwhm <= 30.0 * (1 + 1e-9)
+
+
+def test_a_good_continuum_is_unaffected_by_the_bounds():
+    wave, flux, sigma = _emission_line()
+    fit = fit_profile(wave, flux, sigma, 4995.0, 6000.0, 5025.0, 6000.0, "g")
+    assert fit.center == pytest.approx(5009.2, abs=0.05)
+    assert fit.gfwhm == pytest.approx(1.7 * FWHM_PER_SIGMA, rel=0.02)
+    assert fit.at_bound == ""
+
+
+def test_a_saturated_fit_says_which_parameter_saturated():
+    wave, flux, sigma = _emission_line()
+    fit = fit_profile(wave, flux, sigma, 4995.0, MID_WINDOW,
+                      5025.0, MID_WINDOW, "g")
+    assert "width" in fit.at_bound
+
+
+def test_a_centre_pinned_to_the_edge_is_reported_too():
+    # A line outside the marks: the best the solver can do is sit on an edge.
+    wave = np.linspace(5000.0, 5010.0, 200)
+    flux = 100.0 + 5000.0 * np.exp(-0.5 * ((wave - 5060.0) / 1.5) ** 2)
+    fit = fit_profile(wave, flux, None, 5000.0, 100.0, 5010.0, 100.0, "g")
+    assert "centre" in fit.at_bound
+
+
+def test_the_bounds_hold_for_lorentzian_and_voigt_too():
+    wave, flux, sigma = _emission_line()
+    for kind in ("l", "v"):
+        fit = fit_profile(wave, flux, sigma, 4995.0, MID_WINDOW,
+                          5025.0, MID_WINDOW, kind)
+        assert 4995.0 <= fit.center <= 5025.0
+        assert fit.gfwhm <= 30.0 * (1 + 1e-9)
+        assert fit.lfwhm <= 30.0 * (1 + 1e-9)

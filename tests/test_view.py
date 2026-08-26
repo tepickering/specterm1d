@@ -177,3 +177,45 @@ def test_leaving_the_cursor_out_keeps_the_real_markers():
     view.cursor_x = 5500.0
     view.markers.extend([5100.0, 5900.0])
     assert view.to_request(with_cursor=False).markers == (5100.0, 5900.0)
+
+
+# ---- the cursor's y follows the spectrum until you move it ---------
+
+def test_the_cursor_y_starts_on_the_spectrum():
+    # Mid-window is a hopeless continuum guess where one bright line sets the
+    # autoscale: on a 2500:1 spectrum it sits a thousand times above the
+    # continuum, and walking down to it takes 250 arrow presses.
+    view = _one_entry_view()
+    view.cursor_x = 5500.0
+    view.follow_flux()
+    assert view.cursor_y == pytest.approx(1.0)
+
+
+def test_following_stops_once_you_move_the_cursor_yourself():
+    view = _one_entry_view()
+    view.cursor_x = 5500.0
+    view.follow_flux()
+    view.cursor_y = 42.0
+    view.lock_cursor_y()
+    view.cursor_x = 5600.0
+    view.follow_flux()
+    assert view.cursor_y == pytest.approx(42.0)
+
+
+def test_a_new_window_lets_the_cursor_follow_again():
+    view = _one_entry_view()
+    view.lock_cursor_y()
+    view.reset_limits()
+    view.cursor_x = 5500.0
+    view.follow_flux()
+    assert view.cursor_y == pytest.approx(1.0)
+
+
+def test_following_a_cursor_off_the_spectrum_leaves_y_alone():
+    view = _one_entry_view()
+    view.cursor_x = 5500.0
+    view.follow_flux()
+    before = view.cursor_y
+    view.cursor_x = None
+    view.follow_flux()
+    assert view.cursor_y == pytest.approx(before)

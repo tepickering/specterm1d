@@ -164,6 +164,32 @@ def region_stats(wave, flux, good, sigma, x1: float, x2: float) -> RegionStats:
 
 FWHM_PER_SIGMA = 2.0 * np.sqrt(2.0 * np.log(2.0))
 
+# A profile narrower than this is a spike, not a line. Kept off zero so the
+# solver has somewhere to stand.
+MIN_WIDTH = 1e-9
+
+# How close to a limit counts as sitting on it, as a share of the range.
+BOUND_TOLERANCE = 1e-6
+
+
+def _pinned(params, lo, hi, names) -> str:
+    """Which fitted parameters ended up on their limits.
+
+    Names, not a flag, because the caller shows this to a person: knowing the
+    width saturated says the marks were wrong, and knowing the centre did says
+    the line is not between them.
+    """
+    hit = []
+    for value, low, high, name in zip(params, lo, hi, names, strict=True):
+        span = high - low
+        if not np.isfinite(span) or span <= 0:
+            continue
+        on_limit = (abs(value - low) <= BOUND_TOLERANCE * span
+                    or abs(value - high) <= BOUND_TOLERANCE * span)
+        if on_limit and name not in hit:
+            hit.append(name)
+    return ", ".join(hit)
+
 
 @dataclass
 class ProfileFit:
@@ -177,6 +203,15 @@ class ProfileFit:
     model_x: np.ndarray
     model_y: np.ndarray
     rms: float = float("nan")
+    at_bound: str = ""
+    """Which parameters the solver pinned to a limit, if any.
+
+    Non-empty means the fit is not a measurement. It happens when the marked
+    continuum is far from the real one - easy to do where the cursor moves a
+    whole terminal cell at a time and the line is a thousand times the
+    continuum - and the honest answer is that the data does not support a
+    profile, not a plausible-looking number.
+    """
 
 
 def gaussian(x, center, amplitude, sigma):
@@ -243,32 +278,54 @@ def fit_profile(wave, flux, sigma, x1: float, y1: float, x2: float, y2: float,
     guess_amp = float(residual[extreme])
     guess_width = max((x2 - x1) / 10.0, np.abs(np.diff(xs)).mean() * 2)
 
+    # The marks are the fit's own definition of where the line is, so the
+    # answer has to live inside them: a centre outside [x1, x2], or a profile
+    # wider than the whole marked span, is not a worse fit but a meaningless
+    # one. Without these an unbounded solver handed a badly placed continuum
+    # seeds on a continuum pixel and walks off the end of the spectrum.
+    span = x2 - x1
+    sigma_cap = span / FWHM_PER_SIGMA          # FWHM at most the marked width
+    hwhm_cap = span / 2.0
+    inf = float("inf")
+
     if kind == "l":
         def model(p, x):
             return lorentzian(x, p[0], p[1], p[2])
         p0 = [guess_center, guess_amp, guess_width / 2.0]
+        lo, hi = [x1, -inf, MIN_WIDTH], [x2, inf, hwhm_cap]
+        widths = ("width",)
     elif kind == "v":
         def model(p, x):
             return voigt(x, p[0], p[1], p[2], p[3])
         p0 = [guess_center, guess_amp, guess_width / FWHM_PER_SIGMA,
               guess_width / 2.0]
+        lo = [x1, -inf, MIN_WIDTH, MIN_WIDTH]
+        hi = [x2, inf, sigma_cap, hwhm_cap]
+        widths = ("width", "width")
     else:                                  # any other key defaults to gaussian
         kind = "g"
 
         def model(p, x):
             return gaussian(x, p[0], p[1], p[2])
         p0 = [guess_center, guess_amp, guess_width / FWHM_PER_SIGMA]
+        lo, hi = [x1, -inf, MIN_WIDTH], [x2, inf, sigma_cap]
+        widths = ("width",)
+
+    names = ("centre", "amplitude", *widths)
+    p0 = list(np.clip(p0, lo, hi))
 
     try:
         solution = least_squares(
-            lambda p: (model(p, xs) - residual) * weights, p0, method="lm",
-            max_nfev=2000,
+            lambda p: (model(p, xs) - residual) * weights, p0, method="trf",
+            bounds=(lo, hi), max_nfev=2000,
         )
         params = solution.x
         rms = float(np.sqrt(np.mean((model(params, xs) - residual) ** 2)))
     except Exception:
         params = np.array(p0, dtype=float)
         rms = float("nan")
+
+    at_bound = _pinned(params, lo, hi, names)
 
     center = float(params[0])
     amplitude = float(params[1])
@@ -294,7 +351,8 @@ def fit_profile(wave, flux, sigma, x1: float, y1: float, x2: float, y2: float,
 
     return ProfileFit(center=center, cont=cont_at_center, peak=amplitude,
                       flux=float(area), eqw=float(eqw), gfwhm=gfwhm,
-                      lfwhm=lfwhm, model_x=model_x, model_y=model_y, rms=rms)
+                      lfwhm=lfwhm, model_x=model_x, model_y=model_y, rms=rms,
+                      at_bound=at_bound)
 
 
 def _crossings(xs, ys, level: float, center: float):

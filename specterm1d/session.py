@@ -56,6 +56,7 @@ class Session:
         self.view.reset_limits()
         self.view.cursor_x = float(np.mean(self.view.xlim))
         self.view.cursor_y = float(np.mean(self.view.ylim))
+        self.view.follow_flux()
         self.last_message = ""
         self.files: list = []
         self.file_index: int = 0
@@ -117,6 +118,7 @@ class Session:
         ylo, yhi = self.view.ylim
         self.view.cursor_x = float(xlo + tx * (xhi - xlo))
         self.view.cursor_y = float(ylo + ty * (yhi - ylo))
+        self.view.lock_cursor_y()
 
     def on_motion(self, x: float, y: float) -> None:
         """Pointer position from the graphics window, already in data units.
@@ -127,6 +129,7 @@ class Session:
         """
         self.view.cursor_x = float(x)
         self.view.cursor_y = float(y)
+        self.view.lock_cursor_y()
         crosshair = getattr(self.renderer, "crosshair", None)
         if crosshair is not None:
             crosshair(x, y)
@@ -146,6 +149,7 @@ class Session:
         self.view = ViewState(collection)
         self.view.reset_limits()
         self.view.cursor_x = float(np.mean(self.view.xlim))
+        self.view.follow_flux()
         self.message(f"loaded {collection.path} ({len(collection)} spectra)")
         return True
 
@@ -400,12 +404,14 @@ class Session:
         step = (hi - lo) * fraction
         current = self.view.cursor_x if self.view.cursor_x is not None else lo
         self.view.cursor_x = float(np.clip(current + step, lo, hi))
+        self.view.follow_flux()
 
     def move_cursor_y(self, fraction: float) -> None:
         lo, hi = self.view.ylim
         step = (hi - lo) * fraction
         current = self.view.cursor_y if self.view.cursor_y is not None else lo
         self.view.cursor_y = float(np.clip(current + step, lo, hi))
+        self.view.lock_cursor_y()
 
     def handle(self, key: Key) -> bool:
         if key.name == "resize":

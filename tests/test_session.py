@@ -194,3 +194,48 @@ def test_a_resize_that_reports_no_pixels_keeps_what_it_had():
     session.on_resize(20, 60)
     assert session.caps.pixel_width == 2400
     assert session.caps.pixel_height == 1600
+
+
+def _line_session():
+    """A 2500:1 spectrum, where mid-window is a hopeless continuum guess.
+
+    The line sits off centre so that the cursor's default x lands on the
+    continuum rather than on the peak.
+    """
+    wave = np.linspace(4995.0, 5025.0, 400)
+    flux = 6000.0 + 4.3e6 * np.exp(-0.5 * ((wave - 5002.0) / 1.7) ** 2)
+    coll = SpecCollection(entries=[SpecEntry("A", {"F": build_spec(wave, flux)}, "F")],
+                          path="x")
+    caps = TerminalCaps(False, False, False, True, 24, 80, None, None, True)
+    out = io.StringIO()
+    return Session(coll, HalfblockRenderer(out=out), SpectrumPlot(80, 44),
+                   out, caps)
+
+
+def test_the_cursor_starts_on_the_spectrum_not_mid_window():
+    session = _line_session()
+    lo, hi = session.view.ylim
+    assert session.view.cursor_y < 0.5 * (lo + hi)
+    assert session.view.cursor_y == pytest.approx(6000.0, rel=0.2)
+
+
+def test_moving_left_or_right_keeps_the_cursor_on_the_spectrum():
+    session = _line_session()
+    session.view.cursor_x = 5002.0
+    session.handle(Key("right"))
+    assert session.view.cursor_y == pytest.approx(4.3e6, rel=0.1)
+
+
+def test_moving_the_cursor_up_stops_it_following():
+    session = _line_session()
+    session.handle(Key("up"))
+    placed = session.view.cursor_y
+    session.handle(Key("right"))
+    assert session.view.cursor_y == pytest.approx(placed)
+
+
+def test_the_pointer_also_stops_it_following():
+    session = _line_session()
+    session.on_motion(5002.0, 1234.0)
+    session.handle(Key("right"))
+    assert session.view.cursor_y == pytest.approx(1234.0)
