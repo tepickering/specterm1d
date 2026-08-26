@@ -263,3 +263,94 @@ def test_render_still_returns_an_independent_copy_of_the_frame():
     view.xlim = (5200.0, 5800.0)
     plot.render(view.to_request(title="t2"))
     assert np.array_equal(first, before)     # not a view onto the canvas
+
+
+# ---- chrome sized to the terminal cell -----------------------------
+
+def test_a_large_figure_keeps_its_tuned_margins():
+    # The base fractions are already far more room than the type asks for on
+    # a big figure, so growing them with the dpi would spend half the frame
+    # on empty margin.
+    from specterm1d.plot import CHROME_FULL
+
+    roomy = CHROME_FULL.with_text_room(30.0, 2400.0, 1520.0)
+    assert roomy.margins == CHROME_FULL.margins
+
+
+def test_a_small_figure_gets_enough_room_for_its_labels():
+    from specterm1d.plot import CHROME_FULL, LEFT_EMS
+
+    tight = CHROME_FULL.with_text_room(30.0, 500.0, 240.0)
+    left, _, _, bottom = tight.margins
+    assert left == pytest.approx(LEFT_EMS * 30.0 / 500.0)
+    assert left > CHROME_FULL.margins[0]
+    assert bottom > CHROME_FULL.margins[3]
+
+
+def test_text_room_never_shrinks_a_tuned_margin():
+    from specterm1d.plot import CHROME_FULL
+
+    base_left, base_right, base_top, base_bottom = CHROME_FULL.margins
+    left, right, top, bottom = CHROME_FULL.with_text_room(4.0, 4000.0, 4000.0).margins
+    assert left >= base_left and bottom >= base_bottom
+    assert right <= base_right and top <= base_top
+
+
+def test_text_room_cannot_collapse_the_axes():
+    from specterm1d.plot import CHROME_FULL
+
+    left, right, top, bottom = CHROME_FULL.with_text_room(200.0, 400.0, 300.0).margins
+    assert right - left > 0.3
+    assert top - bottom > 0.3
+
+
+def test_a_bigger_terminal_cell_renders_bigger_labels():
+    # The regression: an 8 pt label is 11 px however large the figure is, so
+    # a terminal reporting a big pixel budget got text a third the height of
+    # its own font.
+    plot = SpectrumPlot(1200, 800)
+    plot.cell_px = 40.0
+    big = plot.dpi
+    plot.cell_px = 20.0
+    small = plot.dpi
+    assert big == pytest.approx(small * 2)
+
+
+def test_label_height_tracks_the_cell_height():
+    from specterm1d.plot import LABEL_CELL_FRACTION
+
+    plot = SpectrumPlot(1200, 800)
+    plot.cell_px = 24.0
+    label_px = plot.chrome().fontsize * plot.dpi / 72
+    assert label_px == pytest.approx(24.0 * LABEL_CELL_FRACTION)
+
+
+def test_an_unreported_cell_size_keeps_the_original_dpi():
+    plot = SpectrumPlot(1200, 800)
+    assert plot.cell_px is None
+    assert plot.dpi == 100
+
+
+def test_the_figure_keeps_its_pixel_size_when_the_dpi_changes():
+    # The renderer asked for exactly this many pixels; scaling the chrome
+    # must not resize the frame underneath it.
+    plot = SpectrumPlot(1200, 800)
+    plot.cell_px = 40.0
+    width, height = plot.fig.get_size_inches() * plot.dpi
+    assert (round(width), round(height)) == (1200, 800)
+
+
+def test_resize_after_a_dpi_change_still_lands_on_the_asked_for_pixels():
+    plot = SpectrumPlot(1200, 800)
+    plot.cell_px = 40.0
+    plot.resize(900, 600)
+    width, height = plot.fig.get_size_inches() * plot.dpi
+    assert (round(width), round(height)) == (900, 600)
+
+
+def test_the_dpi_is_clamped_so_a_nonsense_cell_size_cannot_break_the_figure():
+    plot = SpectrumPlot(1200, 800)
+    plot.cell_px = 4000.0
+    assert plot.dpi <= 600
+    plot.cell_px = 0.5
+    assert plot.dpi >= 72

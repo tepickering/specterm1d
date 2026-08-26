@@ -138,3 +138,59 @@ def test_teardown_is_idempotent():
     session, _ = make_session()
     session.teardown()
     session.teardown()
+
+
+def _session_with(caps, renderer=None):
+    spec = build_spec(np.linspace(5000.0, 6000.0, 200), np.full(200, 1.0))
+    coll = SpecCollection(entries=[SpecEntry("A", {"F": spec}, "F")], path="x")
+    out = io.StringIO()
+    renderer = renderer or HalfblockRenderer(out=out, truecolor=True)
+    width, height = renderer.target_pixels(caps.rows - 2, caps.cols)
+    return Session(coll, renderer, SpectrumPlot(width, height), out, caps)
+
+
+def test_render_sizes_the_chrome_to_the_terminal_cell():
+    # kitty/iTerm2 hand back the window's pixel budget - on a HiDPI display,
+    # physical pixels - so a fixed 8 pt label came out a fraction of the
+    # height of the terminal's own text.
+    from specterm1d.term.kitty import KittyRenderer
+
+    caps = TerminalCaps(kitty=True, iterm2=False, sixel=False, truecolor=True,
+                        rows=40, cols=120, pixel_width=2400, pixel_height=1600,
+                        is_tty=True)
+    session = _session_with(caps, KittyRenderer(io.StringIO(), caps))
+    session.render()
+    assert session.plot.cell_px == pytest.approx(1600 / 40)
+    assert session.plot.dpi > 100
+
+
+def test_render_leaves_the_dpi_alone_when_the_terminal_reports_no_pixels():
+    caps = TerminalCaps(False, False, False, True, 24, 80, None, None, True)
+    session = _session_with(caps)
+    session.render()
+    assert session.plot.cell_px is None
+    assert session.plot.dpi == 100
+
+
+def test_a_resize_refreshes_the_reported_pixel_size():
+    # The cell height now drives the label size, so carrying the old pixel
+    # dimensions across a resize would leave the chrome sized for the window
+    # the terminal used to be.
+    caps = TerminalCaps(kitty=True, iterm2=False, sixel=False, truecolor=True,
+                        rows=40, cols=120, pixel_width=2400, pixel_height=1600,
+                        is_tty=True)
+    session = _session_with(caps)
+    session.on_resize(20, 60, pixel_width=1200, pixel_height=800)
+    assert session.caps.pixel_width == 1200
+    assert session.caps.pixel_height == 800
+    assert session.cell_px() == pytest.approx(40.0)
+
+
+def test_a_resize_that_reports_no_pixels_keeps_what_it_had():
+    caps = TerminalCaps(kitty=True, iterm2=False, sixel=False, truecolor=True,
+                        rows=40, cols=120, pixel_width=2400, pixel_height=1600,
+                        is_tty=True)
+    session = _session_with(caps)
+    session.on_resize(20, 60)
+    assert session.caps.pixel_width == 2400
+    assert session.caps.pixel_height == 1600

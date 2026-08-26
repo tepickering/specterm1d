@@ -175,11 +175,20 @@ class Session:
             return self.outer_rect()
         return self.chrome_layout().plot
 
-    def on_resize(self, rows: int, cols: int) -> None:
+    def on_resize(self, rows: int, cols: int, pixel_width: int | None = None,
+                  pixel_height: int | None = None) -> None:
+        """Adopt the new geometry, pixels included where the terminal gives them.
+
+        The pixel size is not decoration any more: cell_px() divides it by the
+        row count to size the chrome, so carrying the old value across a
+        resize would leave the labels scaled for the window this used to be.
+        Terminals that report nothing keep whatever they had.
+        """
         self.caps = TerminalCaps(
             kitty=self.caps.kitty, iterm2=self.caps.iterm2, sixel=self.caps.sixel,
             truecolor=self.caps.truecolor, rows=rows, cols=cols,
-            pixel_width=self.caps.pixel_width, pixel_height=self.caps.pixel_height,
+            pixel_width=pixel_width or self.caps.pixel_width,
+            pixel_height=pixel_height or self.caps.pixel_height,
             is_tty=self.caps.is_tty, gui=self.caps.gui,
         )
         self.renderer.teardown()      # force a full repaint
@@ -205,6 +214,20 @@ class Session:
 
         Image.fromarray(self.render_rgba(size)[..., :3]).save(str(path))
 
+    def cell_px(self) -> float | None:
+        """Height of one terminal cell in the pixels the figure is drawn in.
+
+        The inline backends render at the terminal's own pixel budget and show
+        it 1:1, so this is what makes matplotlib's labels the height of the
+        terminal's text rather than a fixed 8 pt that shrinks as the window
+        grows. None where there is nothing to match: no tty (--dump asks for
+        an explicit size), or a terminal that does not report its pixels.
+        """
+        caps = self.caps
+        if caps is None or not caps.is_tty or not caps.pixel_height or not caps.rows:
+            return None
+        return caps.pixel_height / caps.rows
+
     def title(self) -> str:
         # The basename, not the path: a full absolute path is both unreadable
         # and wide enough to be clipped at either end of the figure.
@@ -226,7 +249,8 @@ class Session:
         if self.interactive:
             # No CellRect, no text chrome, no footer, and no plot.resize():
             # the window drives the figure size, not the other way round.
-            self.plot.draw(self.view.to_request(title=self.title()))
+            self.plot.draw(self.view.to_request(title=self.title(),
+                                                with_cursor=False))
             invalidate = getattr(self.renderer, "invalidate", None)
             if invalidate is not None:
                 invalidate()
@@ -234,6 +258,7 @@ class Session:
         layout = self.chrome_layout() if self.text_chrome else None
         rect = layout.plot if layout else self.outer_rect()
         width, height = self.renderer.target_pixels(rect.rows, rect.cols)
+        self.plot.cell_px = self.cell_px()
         self.plot.resize(width, height)
         request = self.view.to_request(title=self.title())
         rgba = self.plot.render(request)
@@ -524,11 +549,10 @@ class Session:
             return True
         return result is not False
 
-    def _terminal_size(self) -> tuple[int, int]:
+    def _terminal_size(self) -> tuple[int, int, int | None, int | None]:
         from specterm1d.term.caps import window_size
 
-        rows, cols, _, _ = window_size()
-        return rows, cols
+        return window_size()
 
     # ---- lifecycle --------------------------------------------------
 

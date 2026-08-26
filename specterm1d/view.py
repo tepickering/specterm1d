@@ -167,7 +167,16 @@ class ViewState:
             new = self.axis.to_display(spec, old_wave_limits)
             self.xlim = (float(min(new)), float(max(new)))
 
-    def to_request(self, title: str = "") -> PlotRequest:
+    def to_request(self, title: str = "",
+                   with_cursor: bool = True) -> PlotRequest:
+        """One frame's worth of state.
+
+        ``with_cursor`` draws the cursor as a marker line, which is what the
+        terminal backends have instead of a pointer. Two-window mode turns it
+        off: it has a real pointer and a blitted crosshair, and a marker only
+        moves on a full render, so it would freeze behind the pointer and read
+        as a second, stale cursor.
+        """
         spec = self.display_spec()
         if self.xlim is None or self.ylim is None:
             self.reset_limits()
@@ -178,7 +187,7 @@ class ViewState:
         if self.flip_y:
             ylim = (ylim[1], ylim[0])
         markers = tuple(self.markers)
-        if self.cursor_x is not None:
+        if with_cursor and self.cursor_x is not None:
             markers = (*markers, self.cursor_x)
         ylabel = "Flux"
         if spec.flux_unit is not None:

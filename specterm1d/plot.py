@@ -6,7 +6,7 @@ function of its inputs, so it is testable without a terminal.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -40,6 +40,30 @@ class Chrome:
     minor_ticks: bool
     frame: bool = True         # False strips ticks and spines entirely
 
+    def with_text_room(self, fontsize_px: float,
+                       width_px: float, height_px: float) -> "Chrome":
+        """The same decoration, with margins guaranteed to hold the labels.
+
+        fontsize, tick_len and pad are in points, so raising the figure's dpi
+        scales them - and the line widths, and everything else matplotlib
+        measures in points - in pixels for free. The margins are the one thing
+        that cannot follow, because they are fractions of the figure.
+
+        They rarely need to. A fraction of a large figure is already far more
+        room than the text asks for, so this is a floor rather than a scale:
+        it binds only where the figure is small enough that the type would
+        otherwise run off the edge, and leaves the tuned values alone
+        everywhere else.
+        """
+        left, right, top, bottom = self.margins
+        left = min(max(left, LEFT_EMS * fontsize_px / width_px), MARGIN_CAP)
+        bottom = min(max(bottom, BOTTOM_EMS * fontsize_px / height_px), MARGIN_CAP)
+        right = max(min(right, 1.0 - RIGHT_EMS * fontsize_px / width_px),
+                    1.0 - MARGIN_CAP)
+        top = max(min(top, 1.0 - TOP_EMS * fontsize_px / height_px),
+                  1.0 - MARGIN_CAP)
+        return replace(self, margins=(left, right, top, bottom))
+
 
 # The halfblock backend renders one pixel per terminal column and two per row,
 # so an 80x24 terminal asks for an 80x44 figure. Default 9pt labels are 12.5 px
@@ -62,6 +86,26 @@ CHROME_TINY = Chrome(4, 3, 1.0, 0.8, (0.17, 0.96, 0.93, 0.17),
 # where matplotlib's own labels would be a 5.6 px smear across three cells.
 CHROME_BARE = Chrome(4, 3, 0.0, 0.0, (0.0, 1.0, 1.0, 0.0),
                      False, False, False, False, frame=False)
+
+
+# How tall a plot label should be next to the terminal's own text. A glyph
+# occupies roughly three quarters of a cell - the rest is line spacing - so
+# this lands the two at about the same visible height.
+LABEL_CELL_FRACTION = 0.75
+
+# The room each margin needs, in multiples of the label height: the y side
+# holds a few digits plus the axis label, the x side two stacked lines, and
+# the far edges half of whatever tick label overhangs them.
+LEFT_EMS, BOTTOM_EMS, RIGHT_EMS, TOP_EMS = 4.5, 3.0, 1.2, 1.8
+
+# No single margin may take more than this share of the figure, so a wildly
+# wrong cell size cannot leave the axes with nothing to draw in.
+MARGIN_CAP = 0.33
+
+# The dpi a fixed 8 pt label was tuned against, and the range outside which a
+# reported cell size is not worth believing.
+BASE_DPI = 100
+MIN_DPI, MAX_DPI = 72, 600
 
 
 def chrome_for(width_px: float, height_px: float) -> Chrome:
@@ -204,14 +248,45 @@ class PlotRequest:
 class SpectrumPlot:
     """A persistent Agg figure rendered to an RGBA buffer."""
 
-    def __init__(self, width_px: int, height_px: int, dpi: int = 100,
+    def __init__(self, width_px: int, height_px: int, dpi: int = BASE_DPI,
                  bare: bool = False):
         self.dpi = dpi
+        self._base_dpi = dpi
+        self._cell_px: float | None = None
         self._bare = bare
         self.fig = Figure(figsize=(width_px / dpi, height_px / dpi), dpi=dpi,
                           facecolor=COLOR_BG)
         FigureCanvasAgg(self.fig)
         self.ax = self.fig.add_subplot(111)
+        self._style_axes(self.chrome())
+
+    @property
+    def cell_px(self) -> float | None:
+        """Height of one terminal cell, in the same pixels the figure uses.
+
+        The figure is rendered at the terminal's pixel budget and shown at
+        1:1, so matching the chrome to this makes plot labels the height of
+        the terminal's own text - on a HiDPI display too, where the terminal
+        reports twice the pixels for the same visible area. None (unreported,
+        or a window with no cells) keeps the original dpi.
+        """
+        return self._cell_px
+
+    @cell_px.setter
+    def cell_px(self, value: float | None) -> None:
+        value = float(value) if value else None
+        if value == self._cell_px:
+            return
+        self._cell_px = value
+        width_px, height_px = self.fig.get_size_inches() * self.dpi
+        if value is None:
+            self.dpi = self._base_dpi
+        else:
+            target = LABEL_CELL_FRACTION * value * 72 / CHROME_FULL.fontsize
+            self.dpi = float(min(max(target, MIN_DPI), MAX_DPI))
+        self.fig.set_dpi(self.dpi)
+        # The renderer asked for a pixel count, not an area: hold it steady.
+        self.resize(width_px, height_px)
         self._style_axes(self.chrome())
 
     @property
@@ -233,7 +308,9 @@ class SpectrumPlot:
         if self._bare:
             return CHROME_BARE
         width_px, height_px = self.fig.get_size_inches() * self.dpi
-        return chrome_for(width_px, height_px)
+        chrome = chrome_for(width_px, height_px)
+        return chrome.with_text_room(chrome.fontsize * self.dpi / 72,
+                                     width_px, height_px)
 
     def _style_axes(self, chrome: Chrome) -> None:
         ax = self.ax

@@ -144,3 +144,36 @@ def test_variant_selection_falls_back_to_the_default():
     assert view.current_spec() is a
     view.variant = "BOX/COUNTS"
     assert view.current_spec() is b
+
+
+def _one_entry_view():
+    from specterm1d.spec import SpecCollection, SpecEntry, build_spec
+    from specterm1d.view import ViewState
+
+    spec = build_spec(np.linspace(5000.0, 6000.0, 200), np.full(200, 1.0))
+    coll = SpecCollection(entries=[SpecEntry("A", {"F": spec}, "F")], path="x")
+    view = ViewState(coll)
+    view.reset_limits()
+    return view
+
+
+def test_to_request_draws_the_cursor_as_a_marker_by_default():
+    view = _one_entry_view()
+    view.cursor_x = 5500.0
+    assert 5500.0 in view.to_request().markers
+
+
+def test_to_request_can_leave_the_cursor_out():
+    # In two-window mode the pointer and the blitted crosshair already show
+    # where the cursor is, and a marker line only updates on a full render -
+    # so it freezes behind the pointer and reads as a second, wrong cursor.
+    view = _one_entry_view()
+    view.cursor_x = 5500.0
+    assert 5500.0 not in view.to_request(with_cursor=False).markers
+
+
+def test_leaving_the_cursor_out_keeps_the_real_markers():
+    view = _one_entry_view()
+    view.cursor_x = 5500.0
+    view.markers.extend([5100.0, 5900.0])
+    assert view.to_request(with_cursor=False).markers == (5100.0, 5900.0)

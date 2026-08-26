@@ -331,3 +331,33 @@ def test_a_full_render_invalidates_the_crosshair_background():
     session.renderer.attach(session.plot)
     session.render()
     assert session.renderer.invalidations == 1
+
+
+def test_the_gui_render_does_not_draw_the_cursor_as_a_marker():
+    # The pointer and the blitted crosshair already show it; a marker line
+    # would freeze at the last render and read as a second, stale cursor.
+    session, _, _ = make_gui_session()
+    requests = []
+    session.plot.draw = requests.append
+    session.view.cursor_x = 5500.0
+    session.view.markers.append(5100.0)
+    session.render()
+    assert requests[-1].markers == (5100.0,)
+
+
+def test_the_terminal_render_still_draws_the_cursor_as_a_marker():
+    from specterm1d.term.halfblock import HalfblockRenderer
+
+    out = io.StringIO()
+    spec = build_spec(np.linspace(5000.0, 6000.0, 200), np.full(200, 1.0))
+    coll = SpecCollection(entries=[SpecEntry("A", {"F": spec}, "F")], path="x")
+    caps = TerminalCaps(False, False, False, True, 24, 80, None, None, True)
+    session = Session(coll, HalfblockRenderer(out=out), SpectrumPlot(80, 44),
+                      out, caps)
+    session.view.reset_limits()
+    session.view.cursor_x = 5500.0
+    requests = []
+    session.plot.render = lambda req: (requests.append(req),
+                                       np.zeros((44, 80, 4), dtype=np.uint8))[1]
+    session.render()
+    assert 5500.0 in requests[-1].markers
