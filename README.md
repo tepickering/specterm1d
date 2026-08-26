@@ -46,7 +46,7 @@ Arrow keys move a crosshair, `?` pages the full keymap, `q` quits.
 
 ## Terminal support
 
-One matplotlib figure is rendered to an RGBA buffer, and four interchangeable
+One matplotlib figure is rendered to an RGBA buffer, and five interchangeable
 backends put those pixels on screen. Axes, tick labels, error bands and fit
 overlays therefore look the same everywhere; only the fidelity changes.
 
@@ -55,11 +55,11 @@ overlays therefore look the same everywhere; only the fidelity changes.
 | kitty, Ghostty, WezTerm | kitty graphics | pixel-exact; PNG transport |
 | iTerm2 | OSC 1337 inline image | pixel-exact |
 | Windows Terminal 1.22+, foot, xterm, Konsole, mlterm, contour | sixel | detected via Primary Device Attributes |
-| **stock macOS Terminal, GNOME Terminal, Alacritty** | **halfblock** | no graphics protocol exists; see below |
-| anything else | halfblock | always available |
+| **stock macOS Terminal, GNOME Terminal, Alacritty** | **graphics window** | no graphics protocol exists; see below |
+| ssh with no display, tmux over ssh | halfblock | always available |
 
-The halfblock backend is first-class, not a stub. On a stock Mac it *is* the
-product. Each cell is `▀` with the top source pixel as foreground and the
+The halfblock backend is first-class, not a stub - it is what runs wherever
+neither an inline protocol nor a window is available. Each cell is `▀` with the top source pixel as foreground and the
 bottom as background, giving `cols x 2*rows` effective pixels; frames are
 diffed so a redraw costs only the cells that changed. Terminal.app never
 gained 24-bit colour, so there is an xterm-256 path as well as truecolor.
@@ -75,6 +75,45 @@ spending margins on labels nobody could read.
 Under tmux the kitty protocol is never probed — its passthrough is unreliable
 — so tmux users get sixel where tmux was built with `--enable-sixel`, and
 halfblock otherwise.
+
+### Two-window mode
+
+Terminals with no inline-graphics protocol get a real matplotlib window
+instead of half-block cells. This is what IRAF `splot` did on a
+Tektronix-emulating terminal like `xgterm`: **you point at a feature in the
+graphics window and press a key**, while prompts and measurement results
+scroll past in the text terminal.
+
+The terminal is a plain scrolling transcript in this mode — no full-screen
+layout, no raw mode, no pinned status line. The live `x`/`y`/`pix` readout
+moves to the window title, where your eye already is. `?` and `:show` scroll
+past rather than paging.
+
+Every binding means the same thing in both modes; that is the point.
+
+| terminal | renderer |
+|---|---|
+| kitty, Ghostty, WezTerm | kitty protocol, inline |
+| iTerm2 | iTerm2 protocol, inline |
+| xterm with sixel | sixel, inline |
+| Terminal.app, GNOME Terminal, Alacritty | graphics window |
+| xterm on Linux with X11 | graphics window |
+| ssh with no display, tmux over ssh | half-block |
+
+Inline graphics still win where the terminal supports them — one window beats
+two. Half-block is the last resort: correct everywhere, comfortable nowhere.
+
+To force either mode:
+
+```
+specterm1d --gui spec1d.fits              # or --renderer gui
+specterm1d --renderer halfblock spec1d.fits
+```
+
+The window opens at 1200x800 and is then yours to resize; resizing re-renders
+at the new size. If no window can be opened — no `DISPLAY`, no usable
+toolkit — specterm1d prints one line to stderr and falls back to half-block
+rather than refusing to start.
 
 ## Keys
 
