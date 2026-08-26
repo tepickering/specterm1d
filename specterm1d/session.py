@@ -177,7 +177,7 @@ class Session:
             kitty=self.caps.kitty, iterm2=self.caps.iterm2, sixel=self.caps.sixel,
             truecolor=self.caps.truecolor, rows=rows, cols=cols,
             pixel_width=self.caps.pixel_width, pixel_height=self.caps.pixel_height,
-            is_tty=self.caps.is_tty,
+            is_tty=self.caps.is_tty, gui=self.caps.gui,
         )
         self.renderer.teardown()      # force a full repaint
         self._chrome_cache = None

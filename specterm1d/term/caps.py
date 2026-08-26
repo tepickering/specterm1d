@@ -26,8 +26,10 @@ _DA_RE = re.compile(r"\x1b\[\?([0-9;]+)c")
 _KITTY_TERMS = {"xterm-kitty"}
 _KITTY_PROGRAMS = {"ghostty", "WezTerm"}
 
-# Renderer preference order. halfblock is always last and always available.
-PREFERENCE = ("kitty", "iterm2", "sixel", "halfblock")
+# Renderer preference order. Inline graphics win where they exist - one window
+# beats two - then a real graphics window, and halfblock last: correct
+# everywhere, comfortable nowhere.
+PREFERENCE = ("kitty", "iterm2", "sixel", "gui", "halfblock")
 
 _FACTORIES: dict[str, Callable] = {}
 
@@ -43,6 +45,9 @@ class TerminalCaps:
     pixel_width: int | None
     pixel_height: int | None
     is_tty: bool
+    # Worth trying a graphics window. choose_renderer reads this by name
+    # through the same getattr the protocol flags use.
+    gui: bool = False
 
 
 def register_renderer(name: str, factory: Callable) -> None:
@@ -107,6 +112,10 @@ def _da_has_sixel(response: str | None) -> bool:
 
 def detect(env: dict | None = None, query_fn: Callable | None = None,
            size_fn: Callable | None = None, is_tty: bool = True) -> TerminalCaps:
+    # Local: term/__init__ imports caps before gui, and probing is not on any
+    # hot path.
+    from specterm1d.term import gui as gui_backend
+
     env = os.environ if env is None else env
 
     if not is_tty:
@@ -142,7 +151,7 @@ def detect(env: dict | None = None, query_fn: Callable | None = None,
     return TerminalCaps(
         kitty=kitty, iterm2=iterm2, sixel=sixel, truecolor=truecolor,
         rows=rows, cols=cols, pixel_width=xpixel, pixel_height=ypixel,
-        is_tty=True,
+        is_tty=True, gui=gui_backend.available(env),
     )
 
 

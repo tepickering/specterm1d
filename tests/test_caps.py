@@ -143,3 +143,56 @@ def test_halfblock_gets_truecolor_flag_from_caps():
                      rows=50, cols=200, pixel_width=None, pixel_height=None,
                      is_tty=True)
     assert choose_renderer(c, out=io.StringIO()).truecolor is False
+
+
+def test_preference_puts_the_window_above_halfblock_and_below_inline():
+    from specterm1d.term.caps import PREFERENCE
+    assert PREFERENCE == ("kitty", "iterm2", "sixel", "gui", "halfblock")
+
+
+def test_a_terminal_with_no_inline_protocol_gets_a_window():
+    import specterm1d.term  # noqa: F401  - registers the factories
+    from specterm1d.term.caps import TerminalCaps, choose_renderer
+
+    caps = TerminalCaps(kitty=False, iterm2=False, sixel=False, truecolor=True,
+                        rows=43, cols=116, pixel_width=None, pixel_height=None,
+                        is_tty=True, gui=True)
+    assert choose_renderer(caps, out=None).name == "gui"
+
+
+def test_no_display_falls_all_the_way_through_to_halfblock():
+    import specterm1d.term  # noqa: F401
+    from specterm1d.term.caps import TerminalCaps, choose_renderer
+
+    caps = TerminalCaps(kitty=False, iterm2=False, sixel=False, truecolor=True,
+                        rows=43, cols=116, pixel_width=None, pixel_height=None,
+                        is_tty=True, gui=False)
+    assert choose_renderer(caps, out=None).name == "halfblock"
+
+
+def test_inline_graphics_still_beat_the_window():
+    import specterm1d.term  # noqa: F401
+    from specterm1d.term.caps import TerminalCaps, choose_renderer
+
+    caps = TerminalCaps(kitty=True, iterm2=False, sixel=False, truecolor=True,
+                        rows=43, cols=116, pixel_width=800, pixel_height=480,
+                        is_tty=True, gui=True)
+    assert choose_renderer(caps, out=None).name == "kitty"
+
+
+def test_detect_records_whether_a_window_is_worth_trying():
+    from specterm1d.term.caps import detect
+
+    caps = detect(env={"DISPLAY": ":0"}, query_fn=lambda q: None,
+                  size_fn=lambda: (43, 116, None, None))
+    assert caps.gui is True
+
+
+def test_gui_can_be_forced_by_name():
+    import specterm1d.term  # noqa: F401
+    from specterm1d.term.caps import TerminalCaps, choose_renderer
+
+    caps = TerminalCaps(kitty=True, iterm2=True, sixel=True, truecolor=True,
+                        rows=43, cols=116, pixel_width=800, pixel_height=480,
+                        is_tty=True, gui=False)
+    assert choose_renderer(caps, override="gui", out=None).name == "gui"

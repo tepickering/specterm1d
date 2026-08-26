@@ -223,3 +223,80 @@ def test_teardown_writes_no_terminal_restoration_in_gui_mode():
     assert renderer.torn_down is True
     for sequence in TUI_SEQUENCES:
         assert sequence not in out.getvalue()
+
+
+# ---- cli wiring ----------------------------------------------------
+
+def test_gui_is_offered_as_a_renderer_choice():
+    from specterm1d.cli import RENDERERS, build_parser
+
+    assert RENDERERS == ("kitty", "iterm2", "sixel", "gui", "halfblock")
+    assert build_parser().parse_args(["--renderer", "gui", "x.fits"]).renderer == "gui"
+
+
+def test_the_gui_shortcut_selects_the_gui_renderer():
+    from specterm1d.cli import build_parser, resolve_renderer_choice
+
+    args = build_parser().parse_args(["--gui", "x.fits"])
+    assert resolve_renderer_choice(args) == "gui"
+
+
+def test_an_explicit_renderer_wins_over_the_gui_shortcut():
+    from specterm1d.cli import build_parser, resolve_renderer_choice
+
+    args = build_parser().parse_args(["--gui", "--renderer", "halfblock", "x.fits"])
+    assert resolve_renderer_choice(args) == "halfblock"
+
+
+def test_no_flags_leaves_the_choice_to_probing():
+    from specterm1d.cli import build_parser, resolve_renderer_choice
+
+    assert resolve_renderer_choice(build_parser().parse_args(["x.fits"])) is None
+
+
+def test_a_window_that_will_not_open_falls_back_with_one_warning(capsys):
+    from specterm1d.cli import attach_or_fall_back
+    from specterm1d.term import gui as gui_mod
+
+    class Refuses(gui_mod.GuiRenderer):
+        def attach(self, plot):
+            raise gui_mod.GuiUnavailable("tkagg: no display name and no $DISPLAY")
+
+    caps = TerminalCaps(kitty=False, iterm2=False, sixel=False, truecolor=True,
+                        rows=43, cols=116, pixel_width=None, pixel_height=None,
+                        is_tty=True, gui=True)
+    renderer = attach_or_fall_back(Refuses(), SpectrumPlot(400, 300), caps,
+                                   out=io.StringIO())
+    assert renderer.name == "halfblock"
+    captured = capsys.readouterr()
+    assert "graphics window unavailable" in captured.err
+    assert captured.err.count("\n") == 1
+
+
+def test_the_tty_check_still_refuses_a_pipe_in_gui_mode(monkeypatch, capsys,
+                                                       tabular_fits):
+    # The text half is half the interface: a graphics window with its prompts
+    # redirected to a pipe is not a usable tool. --dump and --cursor remain
+    # the headless paths. tabular_fits is the conftest fixture, so the loader
+    # succeeds and the tty check is what returns 1.
+    from specterm1d import cli
+
+    monkeypatch.setattr(
+        cli.caps_mod, "detect",
+        lambda **kwargs: TerminalCaps(False, False, False, False, 24, 80,
+                                      None, None, False),
+    )
+    assert cli.main(["--gui", str(tabular_fits)]) == 1
+    assert "not a tty" in capsys.readouterr().err
+
+
+def test_a_terminal_renderer_passes_straight_through_attachment():
+    from specterm1d.cli import attach_or_fall_back
+    from specterm1d.term.halfblock import HalfblockRenderer
+
+    caps = TerminalCaps(kitty=False, iterm2=False, sixel=False, truecolor=True,
+                        rows=43, cols=116, pixel_width=None, pixel_height=None,
+                        is_tty=True, gui=False)
+    renderer = HalfblockRenderer(out=io.StringIO())
+    assert attach_or_fall_back(renderer, SpectrumPlot(116, 82), caps,
+                               out=io.StringIO()) is renderer

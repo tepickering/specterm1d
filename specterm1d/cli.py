@@ -14,7 +14,7 @@ from specterm1d.plot import SpectrumPlot
 from specterm1d.session import Session
 from specterm1d.term import caps as caps_mod
 
-RENDERERS = ("kitty", "iterm2", "sixel", "halfblock")
+RENDERERS = ("kitty", "iterm2", "sixel", "gui", "halfblock")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,6 +25,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("files", nargs="*", type=Path, help="FITS spectra to view")
     parser.add_argument("--renderer", choices=RENDERERS,
                         help="force a renderer instead of probing the terminal")
+    parser.add_argument("--gui", action="store_true",
+                        help="shortcut for --renderer gui (a matplotlib window)")
     parser.add_argument("--format", help="force a loader instead of sniffing")
     parser.add_argument("--units", help="initial dispersion units, e.g. nm, um, GHz")
     parser.add_argument("--mouse", action="store_true",
@@ -39,6 +41,36 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dump-size", default="1200x700",
                         help="pixel size for --dump, as WxH")
     return parser
+
+
+def resolve_renderer_choice(args) -> str | None:
+    """--gui is a shortcut; an explicit --renderer always wins."""
+    if args.renderer:
+        return args.renderer
+    return "gui" if args.gui else None
+
+
+def attach_or_fall_back(renderer, plot, caps, out):
+    """Open the renderer's window, or warn once and use halfblock.
+
+    A viewer that refuses to start over a missing window is worse than one
+    that draws coarsely, so this is never fatal - even for an explicit
+    --renderer gui. Terminal backends have no attach() and pass straight
+    through.
+    """
+    from specterm1d.term.gui import GuiUnavailable
+    from specterm1d.term.halfblock import HalfblockRenderer
+
+    attach = getattr(renderer, "attach", None)
+    if attach is None:
+        return renderer
+    try:
+        attach(plot)
+    except GuiUnavailable as exc:
+        print(f"graphics window unavailable ({exc}); using halfblock",
+              file=sys.stderr)
+        return HalfblockRenderer(out=out, truecolor=caps.truecolor)
+    return renderer
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -85,11 +117,12 @@ def main(argv: list[str] | None = None) -> int:
         print("specterm1d needs a terminal; stdout is not a tty.", file=sys.stderr)
         return 1
 
-    renderer = caps_mod.choose_renderer(caps, override=args.renderer,
+    renderer = caps_mod.choose_renderer(caps, override=resolve_renderer_choice(args),
                                         out=sys.stdout)
     width, height = renderer.target_pixels(caps.rows - 2, caps.cols)
-    session = Session(collection, renderer, SpectrumPlot(width, height),
-                      out=sys.stdout, caps=caps)
+    plot = SpectrumPlot(width, height)
+    renderer = attach_or_fall_back(renderer, plot, caps, out=sys.stdout)
+    session = Session(collection, renderer, plot, out=sys.stdout, caps=caps)
     session.debug = args.debug
 
     if args.log:
