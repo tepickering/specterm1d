@@ -314,7 +314,12 @@ class SpectrumPlot:
         self.fig.set_size_inches(width_px / self.dpi, height_px / self.dpi,
                                  forward=True)
 
-    def render(self, req: PlotRequest) -> np.ndarray:
+    def draw(self, req: PlotRequest) -> None:
+        """Paint one frame onto the canvas. No buffer copy.
+
+        Split out of render() because a GUI canvas is on screen the moment it
+        is drawn, so copying 3.8 MB of RGBA out of it every frame buys nothing.
+        """
         ax = self.ax
         ax.clear()
         chrome = self.chrome()
@@ -375,7 +380,13 @@ class SpectrumPlot:
                      fontsize=chrome.fontsize + 1, pad=chrome.pad + 1.0)
 
         self.fig.canvas.draw()
-        # A copy, not a view: buffer_rgba() aliases the renderer's own memory,
-        # so any frame a caller is still holding would mutate on the next
-        # render. The halfblock backend diffs against the previous frame.
+
+    def render(self, req: PlotRequest) -> np.ndarray:
+        """Draw, then hand back an independent copy of the frame.
+
+        A copy, not a view: buffer_rgba() aliases the renderer's own memory,
+        so any frame a caller is still holding would mutate on the next
+        render. The halfblock backend diffs against the previous frame.
+        """
+        self.draw(req)
         return np.array(self.fig.canvas.buffer_rgba(), dtype=np.uint8)

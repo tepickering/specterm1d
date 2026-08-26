@@ -228,3 +228,38 @@ def test_small_figures_render_without_colliding_labels():
         # The axes must not have been squeezed out of existence by the chrome.
         box = plot.ax.get_position()
         assert box.width > 0.5 and box.height > 0.3
+
+
+def test_draw_paints_the_canvas_without_copying_the_buffer():
+    # GUI mode paints as it draws; the 3.8 MB copy render() makes is waste
+    # there. draw() must still leave a real frame on the canvas.
+    from specterm1d.spec import SpecCollection, SpecEntry
+    from specterm1d.view import ViewState
+
+    spec = build_spec(np.linspace(5000.0, 6000.0, 200), np.full(200, 3.0))
+    coll = SpecCollection(entries=[SpecEntry("A", {"F": spec}, "F")], path="x.fits")
+    view = ViewState(coll)
+    view.reset_limits()
+
+    plot = SpectrumPlot(200, 120)
+    assert plot.draw(view.to_request(title="t")) is None
+    buf = np.asarray(plot.fig.canvas.buffer_rgba())
+    assert buf.shape == (120, 200, 4)
+    assert buf[..., :3].any()
+
+
+def test_render_still_returns_an_independent_copy_of_the_frame():
+    from specterm1d.spec import SpecCollection, SpecEntry
+    from specterm1d.view import ViewState
+
+    spec = build_spec(np.linspace(5000.0, 6000.0, 200), np.full(200, 3.0))
+    coll = SpecCollection(entries=[SpecEntry("A", {"F": spec}, "F")], path="x.fits")
+    view = ViewState(coll)
+    view.reset_limits()
+
+    plot = SpectrumPlot(200, 120)
+    first = plot.render(view.to_request(title="t"))
+    before = first.copy()
+    view.xlim = (5200.0, 5800.0)
+    plot.render(view.to_request(title="t2"))
+    assert np.array_equal(first, before)     # not a view onto the canvas
