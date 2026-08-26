@@ -127,3 +127,226 @@ def test_open_window_disables_the_toolbar_and_matplotlibs_own_keymap(clean_rcpar
     assert str(clean_rcparams["toolbar"]).lower() == "none"
     assert clean_rcparams["keymap.save"] == []
     assert clean_rcparams["keymap.quit"] == []
+
+
+# ---- GuiRenderer against a fake toolkit ----------------------------
+
+class FakeCanvas:
+    def __init__(self, size=(640, 480)):
+        self.callbacks = {}
+        self.flushed = 0
+        self._size = size
+
+    def mpl_connect(self, name, func):
+        self.callbacks[name] = func
+        return len(self.callbacks)
+
+    def flush_events(self):
+        self.flushed += 1
+
+    def get_width_height(self):
+        return self._size
+
+
+class FakeManager:
+    def __init__(self, canvas):
+        self.canvas = canvas
+        self.title = None
+        self.destroyed = False
+
+    def set_window_title(self, text):
+        self.title = text
+
+    def destroy(self):
+        self.destroyed = True
+
+
+class FakeEvent:
+    def __init__(self, key=None, inaxes=None, xdata=None, ydata=None):
+        self.key = key
+        self.inaxes = inaxes
+        self.xdata = xdata
+        self.ydata = ydata
+
+
+def fake_open(fig, size, backends=None):
+    canvas = FakeCanvas()
+    return canvas, FakeManager(canvas), "fake"
+
+
+def attached_renderer(size=(400, 300)):
+    from specterm1d.plot import SpectrumPlot
+
+    plot = SpectrumPlot(*size)
+    renderer = gui.GuiRenderer(size=size, open_fn=fake_open)
+    renderer.attach(plot)
+    return renderer, plot
+
+
+def test_gui_renderer_advertises_itself_as_interactive():
+    renderer = gui.GuiRenderer(open_fn=fake_open)
+    assert renderer.name == "gui"
+    assert renderer.interactive is True
+    assert renderer.text_chrome is False
+    assert renderer.closed is False
+
+
+def test_target_pixels_is_the_configured_size_before_the_window_exists():
+    # cli.py builds the plot before attaching, so this has to answer early.
+    renderer = gui.GuiRenderer(size=(1200, 800), open_fn=fake_open)
+    assert renderer.target_pixels(40, 100) == (1200, 800)
+
+
+def test_target_pixels_follows_the_live_canvas_once_attached():
+    renderer, _ = attached_renderer()
+    assert renderer.target_pixels(40, 100) == (640, 480)
+
+
+def test_attach_adopts_the_existing_figure():
+    renderer, plot = attached_renderer()
+    assert renderer.plot is plot
+
+
+def test_attach_subscribes_to_every_event_the_session_needs():
+    renderer, _ = attached_renderer()
+    assert set(renderer.canvas.callbacks) == {
+        "key_press_event", "motion_notify_event", "button_press_event",
+        "close_event", "resize_event",
+    }
+
+
+def test_key_presses_queue_as_terminal_keys():
+    renderer, _ = attached_renderer()
+    renderer.canvas.callbacks["key_press_event"](FakeEvent(key="k"))
+    assert renderer.poll() == [Key("char", "k")]
+
+
+def test_unmapped_key_presses_are_dropped_rather_than_queued():
+    renderer, _ = attached_renderer()
+    renderer.canvas.callbacks["key_press_event"](FakeEvent(key="ctrl+c"))
+    assert renderer.poll() == []
+
+
+def test_poll_drains_the_queue():
+    renderer, _ = attached_renderer()
+    renderer.canvas.callbacks["key_press_event"](FakeEvent(key="a"))
+    assert len(renderer.poll()) == 1
+    assert renderer.poll() == []
+
+
+def test_motion_inside_the_axes_queues_data_coordinates():
+    renderer, plot = attached_renderer()
+    renderer.canvas.callbacks["motion_notify_event"](
+        FakeEvent(inaxes=plot.ax, xdata=5000.5, ydata=1.25))
+    assert renderer.poll() == [Motion(5000.5, 1.25)]
+
+
+def test_motion_outside_the_axes_is_ignored():
+    renderer, _ = attached_renderer()
+    renderer.canvas.callbacks["motion_notify_event"](
+        FakeEvent(inaxes=None, xdata=None, ydata=None))
+    assert renderer.poll() == []
+
+
+def test_a_click_places_the_cursor_the_same_way_motion_does():
+    renderer, plot = attached_renderer()
+    renderer.canvas.callbacks["button_press_event"](
+        FakeEvent(inaxes=plot.ax, xdata=5100.0, ydata=2.0))
+    assert renderer.poll() == [Motion(5100.0, 2.0)]
+
+
+def test_closing_the_window_sets_closed():
+    renderer, _ = attached_renderer()
+    renderer.canvas.callbacks["close_event"](FakeEvent())
+    assert renderer.closed is True
+
+
+def test_a_resize_is_reported_once_and_then_cleared():
+    renderer, _ = attached_renderer()
+    assert renderer.take_resized() is False
+    renderer.canvas.callbacks["resize_event"](FakeEvent())
+    assert renderer.take_resized() is True
+    assert renderer.take_resized() is False
+
+
+def test_pump_runs_the_toolkits_event_loop():
+    renderer, _ = attached_renderer()
+    renderer.pump()
+    renderer.pump()
+    assert renderer.canvas.flushed == 2
+
+
+def test_set_title_carries_the_readout_to_the_window():
+    renderer, _ = attached_renderer()
+    renderer.set_title("x=5000  y=1.2")
+    assert renderer.manager.title == "x=5000  y=1.2"
+
+
+def test_draw_is_a_no_op_because_the_canvas_is_already_on_screen():
+    import numpy as np
+
+    from specterm1d.term.base import CellRect
+
+    renderer, _ = attached_renderer()
+    assert renderer.draw(np.zeros((4, 4, 4), dtype=np.uint8),
+                         CellRect(0, 0, 2, 4)) is None
+
+
+def test_teardown_destroys_the_window_and_is_idempotent():
+    renderer, _ = attached_renderer()
+    manager = renderer.manager
+    renderer.teardown()
+    renderer.teardown()
+    assert manager.destroyed is True
+
+
+def test_teardown_before_attach_does_not_raise():
+    gui.GuiRenderer(open_fn=fake_open).teardown()
+
+
+def test_pump_and_set_title_before_attach_do_not_raise():
+    renderer = gui.GuiRenderer(open_fn=fake_open)
+    renderer.pump()
+    renderer.set_title("x")
+
+
+def test_attach_propagates_gui_unavailable_so_cli_can_fall_back():
+    from specterm1d.plot import SpectrumPlot
+
+    def refuse(fig, size, backends=None):
+        raise gui.GuiUnavailable("tkagg: no display name and no $DISPLAY")
+
+    renderer = gui.GuiRenderer(open_fn=refuse)
+    with pytest.raises(gui.GuiUnavailable):
+        renderer.attach(SpectrumPlot(100, 100))
+
+
+# ---- one real window, skipped where there is no display ------------
+
+@pytest.mark.skipif(not gui.available(), reason="no GUI display available")
+def test_a_real_window_opens_draws_a_frame_and_closes(clean_rcparams):
+    import numpy as np
+
+    from specterm1d.plot import SpectrumPlot
+    from specterm1d.spec import SpecCollection, SpecEntry, build_spec
+    from specterm1d.view import ViewState
+
+    plot = SpectrumPlot(400, 300)
+    renderer = gui.GuiRenderer(size=(400, 300))
+    try:
+        renderer.attach(plot)
+    except gui.GuiUnavailable as exc:
+        pytest.skip(str(exc))
+    try:
+        spec = build_spec(np.linspace(5000.0, 6000.0, 200), np.full(200, 3.0))
+        coll = SpecCollection(entries=[SpecEntry("A", {"F": spec}, "F")],
+                              path="x.fits")
+        view = ViewState(coll)
+        view.reset_limits()
+        plot.draw(view.to_request(title="smoke"))
+        renderer.pump()
+        renderer.set_title("x=5000")
+        assert renderer.target_pixels(40, 100)[0] > 0
+        assert renderer.closed is False
+    finally:
+        renderer.teardown()

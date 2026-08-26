@@ -8,10 +8,12 @@ box is exactly the case this module has to survive.
 """
 from __future__ import annotations
 
+import contextlib
 import importlib
 import os
 import sys
 
+from specterm1d.term.base import Motion
 from specterm1d.term.input import Key
 
 _DIRECTIONS = ("left", "right", "up", "down")
@@ -136,3 +138,99 @@ def open_window(fig, size: tuple[int, int], backends=None):
         return manager.canvas, manager, name
 
     raise GuiUnavailable("; ".join(reasons) or "no GUI backend to try")
+
+
+class GuiRenderer:
+    """A real matplotlib window that adopts SpectrumPlot's figure.
+
+    Callbacks append to a list and return; the list is drained by poll() from
+    the session loop. They fire inside pump(), so there is no reentrancy and
+    no thread - the queue exists to keep dispatch out of the toolkit's stack.
+    """
+
+    name = "gui"
+    text_chrome = False
+    interactive = True
+
+    def __init__(self, size: tuple[int, int] = DEFAULT_SIZE, open_fn=open_window):
+        self.size = size
+        self._open = open_fn
+        self.plot = None
+        self.canvas = None
+        self.manager = None
+        self.backend = None
+        self.closed = False
+        self.resized = False
+        self._events: list = []
+
+    # ---- renderer protocol ------------------------------------------
+
+    def target_pixels(self, rows: int, cols: int) -> tuple[int, int]:
+        """The configured size before the window exists, the live one after.
+
+        cli.py builds the plot before attaching, so this has to answer before
+        there is a canvas to ask.
+        """
+        if self.canvas is None:
+            return self.size
+        width, height = self.canvas.get_width_height()
+        return (int(width), int(height))
+
+    def draw(self, rgba, rect) -> None:
+        """No-op: a GUI canvas is on screen the moment it is drawn."""
+
+    def teardown(self) -> None:
+        manager, self.manager = self.manager, None
+        self.canvas = None
+        if manager is not None:
+            with contextlib.suppress(Exception):
+                manager.destroy()
+
+    # ---- interactive protocol ---------------------------------------
+
+    def attach(self, plot) -> None:
+        self.plot = plot
+        self.canvas, self.manager, self.backend = self._open(plot.fig, self.size)
+        connect = self.canvas.mpl_connect
+        connect("key_press_event", self._on_key)
+        connect("motion_notify_event", self._on_motion)
+        connect("button_press_event", self._on_motion)
+        connect("close_event", self._on_close)
+        connect("resize_event", self._on_resize)
+
+    def poll(self) -> list:
+        events, self._events = self._events, []
+        return events
+
+    def pump(self) -> None:
+        if self.canvas is not None:
+            self.canvas.flush_events()
+
+    def set_title(self, text: str) -> None:
+        if self.manager is not None:
+            self.manager.set_window_title(text)
+
+    def take_resized(self) -> bool:
+        """True once after each window resize, so the session can redraw."""
+        was, self.resized = self.resized, False
+        return was
+
+    # ---- toolkit callbacks ------------------------------------------
+
+    def _on_key(self, event) -> None:
+        key = key_from_mpl(event.key)
+        if key is not None:
+            self._events.append(key)
+
+    def _on_motion(self, event) -> None:
+        if self.plot is None or event.inaxes is not self.plot.ax:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        self._events.append(Motion(float(event.xdata), float(event.ydata)))
+
+    def _on_close(self, _event) -> None:
+        self.closed = True
+
+    def _on_resize(self, _event) -> None:
+        self.resized = True
