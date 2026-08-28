@@ -196,3 +196,68 @@ def test_gui_can_be_forced_by_name():
                         rows=43, cols=116, pixel_width=800, pixel_height=480,
                         is_tty=True, gui=False)
     assert choose_renderer(caps, override="gui", out=None).name == "gui"
+
+
+# iTerm2 retains every distinct inline image for the life of the session, so
+# panning a spectrum grows the terminal process by roughly a decoded bitmap a
+# keystroke. Measured against iTerm2 3.6.11: 1.67 MB per cursor move over 100
+# moves, against 0.05 MB/frame for the same loop drawing text. Both of its
+# inline paths are affected - sixel measured 4 MB/frame there - so where a
+# graphics window is available it is the only comfortable option.
+def test_iterm2_yields_to_a_window_because_it_leaks_inline_images():
+    import specterm1d.term  # noqa: F401  - registers the factories
+    from specterm1d.term.caps import TerminalCaps, choose_renderer
+
+    caps = TerminalCaps(kitty=False, iterm2=True, sixel=False, truecolor=True,
+                        rows=43, cols=116, pixel_width=800, pixel_height=480,
+                        is_tty=True, gui=True)
+    assert choose_renderer(caps, out=None).name == "gui"
+
+
+def test_iterm2_sixel_yields_to_a_window_too():
+    import specterm1d.term  # noqa: F401
+    from specterm1d.term.caps import TerminalCaps, choose_renderer
+
+    caps = TerminalCaps(kitty=False, iterm2=True, sixel=True, truecolor=True,
+                        rows=43, cols=116, pixel_width=800, pixel_height=480,
+                        is_tty=True, gui=True)
+    assert choose_renderer(caps, out=None).name == "gui"
+
+
+def test_iterm2_still_draws_inline_when_there_is_no_window():
+    # A leaking plot beats no plot: without a display we stay inline.
+    import io
+
+    import specterm1d.term  # noqa: F401
+    from specterm1d.term.caps import TerminalCaps, choose_renderer
+
+    caps = TerminalCaps(kitty=False, iterm2=True, sixel=False, truecolor=True,
+                        rows=43, cols=116, pixel_width=800, pixel_height=480,
+                        is_tty=True, gui=False)
+    assert choose_renderer(caps, out=io.StringIO()).name == "iterm2"
+
+
+def test_sixel_elsewhere_is_untouched_by_the_iterm2_workaround():
+    # foot, xterm and Windows Terminal do not leak; they keep inline graphics.
+    import io
+
+    import specterm1d.term  # noqa: F401
+    from specterm1d.term.caps import TerminalCaps, choose_renderer
+
+    caps = TerminalCaps(kitty=False, iterm2=False, sixel=True, truecolor=True,
+                        rows=43, cols=116, pixel_width=800, pixel_height=480,
+                        is_tty=True, gui=True)
+    assert choose_renderer(caps, out=io.StringIO()).name == "sixel"
+
+
+def test_an_explicit_iterm2_override_still_wins():
+    import io
+
+    import specterm1d.term  # noqa: F401
+    from specterm1d.term.caps import TerminalCaps, choose_renderer
+
+    caps = TerminalCaps(kitty=False, iterm2=True, sixel=False, truecolor=True,
+                        rows=43, cols=116, pixel_width=800, pixel_height=480,
+                        is_tty=True, gui=True)
+    assert choose_renderer(caps, override="iterm2",
+                           out=io.StringIO()).name == "iterm2"

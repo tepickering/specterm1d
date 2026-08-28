@@ -606,11 +606,18 @@ class Session:
                 self.render()
                 running = True
                 while running:
-                    for key in reader.read(timeout=0.25):
+                    keys = reader.read(timeout=0.25)
+                    for key in keys:
                         running = self.handle(key)
                         if not running:
                             break
-                    if running:
+                    # Only on a state change. read() returns an empty batch
+                    # every time its select() times out, and redrawing through
+                    # that cost a full figure render four times a second for
+                    # as long as the plot was open - and, on iTerm2, an inline
+                    # image the terminal never frees. Resizes arrive as
+                    # Key("resize"), so they are in the batch like any key.
+                    if running and keys:
                         self.render()
             self.finished = True
         finally:

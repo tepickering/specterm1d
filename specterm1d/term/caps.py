@@ -28,8 +28,21 @@ _KITTY_PROGRAMS = {"ghostty", "WezTerm"}
 
 # Renderer preference order. Inline graphics win where they exist - one window
 # beats two - then a real graphics window, and halfblock last: correct
-# everywhere, comfortable nowhere.
+# everywhere, comfortable nowhere. LEAKY_INLINE is the one exception; see
+# choose_renderer.
 PREFERENCE = ("kitty", "iterm2", "sixel", "gui", "halfblock")
+
+# iTerm2 never frees an inline image. Every distinct frame costs it about a
+# decoded bitmap of resident memory for the life of the session, so panning a
+# spectrum grows the terminal by roughly a megabyte and a half per keystroke -
+# measured at 1.67 MB/frame over 100 cursor moves on iTerm2 3.6.11, against
+# 0.05 MB/frame for the same loop drawing text. kitty's protocol replaces a
+# placement in situ through a stable image id and does not do this; iTerm2's
+# OSC 1337 has neither an id nor a delete verb, and nothing we can send
+# collects the images (2J, 3J, erasing the cells and the alternate screen were
+# all measured to make no difference). Its sixel path leaks too, at 4 MB/frame.
+# So on iTerm2 both inline backends step aside for a graphics window.
+LEAKY_INLINE = ("iterm2", "sixel")
 
 _FACTORIES: dict[str, Callable] = {}
 
@@ -167,6 +180,10 @@ def choose_renderer(caps: TerminalCaps, override: str | None = None, out=None):
 
     for name in PREFERENCE:
         if name not in _FACTORIES:
+            continue
+        # A leaking plot still beats no plot, so this only applies where there
+        # is a window to fall back to.
+        if caps.iterm2 and caps.gui and name in LEAKY_INLINE:
             continue
         if name == "halfblock" or getattr(caps, name, False):
             return _FACTORIES[name](caps, out)

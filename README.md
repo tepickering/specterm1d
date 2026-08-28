@@ -34,7 +34,7 @@ Arrow keys move a crosshair, `?` pages the full keymap, `q` quits.
 
 | Flag | Effect |
 |------|--------|
-| `--renderer kitty\|iterm2\|sixel\|halfblock` | force a backend instead of probing |
+| `--renderer kitty\|iterm2\|sixel\|gui\|halfblock` | force a backend instead of probing |
 | `--units nm` | start in other dispersion units (`um`, `GHz`, anything astropy knows) |
 | `--mouse` | enable click-to-position (off by default; see below) |
 | `--format NAME` | force a loader instead of sniffing the file |
@@ -53,7 +53,7 @@ overlays therefore look the same everywhere; only the fidelity changes.
 | Terminal | Backend | Notes |
 |----------|---------|-------|
 | kitty, Ghostty, WezTerm | kitty graphics | pixel-exact; PNG transport |
-| iTerm2 | OSC 1337 inline image | pixel-exact |
+| iTerm2 | **graphics window** | its inline image path leaks; see below |
 | Windows Terminal 1.22+, foot, xterm, Konsole, mlterm, contour | sixel | detected via Primary Device Attributes |
 | **stock macOS Terminal, GNOME Terminal, Alacritty** | **graphics window** | no graphics protocol exists; see below |
 | ssh with no display, tmux over ssh | halfblock | always available |
@@ -94,14 +94,27 @@ Every binding means the same thing in both modes; that is the point.
 | terminal | renderer |
 |---|---|
 | kitty, Ghostty, WezTerm | kitty protocol, inline |
-| iTerm2 | iTerm2 protocol, inline |
+| iTerm2 | graphics window (`--renderer iterm2` to force inline) |
 | xterm with sixel | sixel, inline |
 | Terminal.app, GNOME Terminal, Alacritty | graphics window |
 | xterm on Linux with X11 | graphics window |
 | ssh with no display, tmux over ssh | half-block |
 
 Inline graphics still win where the terminal supports them — one window beats
-two. Half-block is the last resort: correct everywhere, comfortable nowhere.
+two — with iTerm2 the one exception. Half-block is the last resort: correct
+everywhere, comfortable nowhere.
+
+### Why iTerm2 gets a window
+
+iTerm2 never frees an inline image. Every distinct frame costs it about a
+decoded bitmap of resident memory for the life of the session, so panning a
+spectrum grows the terminal process by roughly 1.7 MB per keystroke — measured
+over 100 cursor moves on iTerm2 3.6.11, against 0.05 MB/frame for the same
+loop drawing text. kitty's protocol replaces a placement in situ through a
+stable image id and does not do this; OSC 1337 has neither an id nor a delete
+verb, and nothing the application can send collects the images. Its sixel path
+leaks too, at 4 MB/frame, so both inline backends step aside where a window is
+available. `--renderer iterm2` still forces the inline path.
 
 To force either mode:
 

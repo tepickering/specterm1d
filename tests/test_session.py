@@ -239,3 +239,63 @@ def test_the_pointer_also_stops_it_following():
     session.on_motion(5002.0, 1234.0)
     session.handle(Key("right"))
     assert session.view.cursor_y == pytest.approx(1234.0)
+
+
+class StubReader:
+    """KeyReader stand-in: hands back a canned batch per read() call.
+
+    An empty batch is what a real reader returns when its select() times out
+    with nothing typed, which is the case the loop used to redraw through.
+    """
+
+    def __init__(self, batches):
+        self.batches = list(batches)
+        self.reads = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self, timeout=None):
+        self.reads += 1
+        return self.batches.pop(0) if self.batches else [Key("char", "q")]
+
+
+def run_with(monkeypatch, batches):
+    """Drive Session.run() over a scripted sequence of read() batches."""
+    import specterm1d.commands  # noqa: F401  - registers the handlers
+    import specterm1d.session as session_module
+
+    session, out = make_session()
+    reader = StubReader(batches)
+    monkeypatch.setattr(session_module, "KeyReader", lambda: reader)
+
+    renders = []
+    real_render = session.render
+    session.render = lambda: (renders.append(1), real_render())[1]
+    session.run()
+    return session, out, renders
+
+
+def test_an_idle_timeout_does_not_redraw(monkeypatch):
+    # Every frame is a full figure render and, on iTerm2, an image the
+    # terminal never frees. Nothing changed, so nothing is redrawn.
+    _, _, renders = run_with(monkeypatch, [[], [], [], [Key("char", "q")]])
+    assert len(renders) == 1          # the opening frame, and nothing since
+
+
+def test_a_keypress_still_redraws(monkeypatch):
+    _, _, renders = run_with(monkeypatch,
+                             [[Key("right")], [Key("right")],
+                              [Key("char", "q")]])
+    assert len(renders) == 3          # opening frame plus one per keypress
+
+
+def test_an_idle_timeout_between_keypresses_redraws_only_for_the_keys(
+        monkeypatch):
+    _, _, renders = run_with(monkeypatch,
+                             [[], [Key("right")], [], [], [Key("right")],
+                              [Key("char", "q")]])
+    assert len(renders) == 3
