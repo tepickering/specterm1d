@@ -54,7 +54,6 @@ class KittyRenderer:
         self.out = out
         self.caps = caps
         self.image_id = image_id
-        self.pixel_mouse = caps.pixel_mouse
 
     def _cell_size(self) -> tuple[float, float]:
         if self.caps.pixel_width and self.caps.pixel_height and self.caps.cols \

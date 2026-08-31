@@ -22,7 +22,19 @@ from typing import Callable
 KITTY_QUERY = "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\"
 DA_QUERY = "\x1b[c"
 
+# DECRQM for SGR-Pixels (DECSET 1016). Asking beats inferring: 1016 is an
+# xterm invention rather than a kitty one, and the terminals that implement it
+# - ghostty and the sixel terminals among them - cannot be told apart from the
+# ones that do not by anything in the environment.
+PIXEL_MOUSE_QUERY = "\x1b[?1016$p"
+
 _DA_RE = re.compile(r"\x1b\[\?([0-9;]+)c")
+_DECRQM_RE = re.compile(r"\x1b\[\?(\d+);(\d+)\$y")
+
+# DECRPM states. 0 means the terminal has never heard of the mode and 4 that
+# it is permanently reset; the rest all mean it knows the mode and will let us
+# turn it on.
+_DECRQM_SUPPORTED = {"1", "2", "3"}
 _KITTY_TERMS = {"xterm-kitty"}
 _KITTY_PROGRAMS = {"ghostty", "WezTerm"}
 
@@ -106,7 +118,8 @@ def query(request: str, timeout: float = 0.1, fd_in: int | None = None,
             if not chunk:
                 break
             buf += chunk
-            if buf.endswith(b"c") or buf.endswith(b"\x1b\\"):
+            if buf.endswith(b"c") or buf.endswith(b"\x1b\\") \
+                    or buf.endswith(b"$y"):
                 break
     except Exception:
         return None
@@ -125,6 +138,16 @@ def _da_has_sixel(response: str | None) -> bool:
     return "4" in match.group(1).split(";")
 
 
+def _decrqm_supported(response: str | None, mode: int) -> bool:
+    """Whether a DECRQM reply says the terminal implements ``mode``."""
+    if not response:
+        return False
+    match = _DECRQM_RE.search(response)
+    if match is None or match.group(1) != str(mode):
+        return False
+    return match.group(2) in _DECRQM_SUPPORTED
+
+
 def detect(env: dict | None = None, query_fn: Callable | None = None,
            size_fn: Callable | None = None, is_tty: bool = True) -> TerminalCaps:
     # Local: term/__init__ imports caps before gui, and probing is not on any
@@ -136,6 +159,10 @@ def detect(env: dict | None = None, query_fn: Callable | None = None,
     if not is_tty:
         return TerminalCaps(False, False, False, False, 24, 80, None, None, False)
 
+    # Default to really asking the terminal. cli calls detect() with neither
+    # function injected, so a None default means every probed capability reads
+    # False in production while the tests, which always inject, stay green.
+    query_fn = query_fn or query
     size_fn = size_fn or window_size
     rows, cols, xpixel, ypixel = size_fn()
     # 0 means "not reported", not "zero pixels wide". Terminal.app reports 0,
@@ -163,12 +190,15 @@ def detect(env: dict | None = None, query_fn: Callable | None = None,
 
     sixel = _da_has_sixel(query_fn(DA_QUERY) if query_fn else None)
 
-    native_kitty = (
-        not in_tmux
-        and env.get("TERM_PROGRAM") not in _KITTY_PROGRAMS
-        and bool(env.get("KITTY_WINDOW_ID"))
+    # Pixel mouse positions are a property of the terminal, not of whichever
+    # graphics protocol it also happens to speak, so ask about the mode rather
+    # than guess from the vendor. Pixel geometry is needed to map the reports;
+    # tmux does not pass 1016 through.
+    pixel_mouse = bool(
+        not in_tmux and xpixel and ypixel
+        and _decrqm_supported(
+            query_fn(PIXEL_MOUSE_QUERY) if query_fn else None, 1016)
     )
-    pixel_mouse = bool(kitty and native_kitty and xpixel and ypixel)
 
     return TerminalCaps(
         kitty=kitty, iterm2=iterm2, sixel=sixel, truecolor=truecolor,

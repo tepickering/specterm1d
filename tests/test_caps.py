@@ -1,6 +1,7 @@
 # tests/test_caps.py
 import pytest
 
+from specterm1d.term import caps as caps_mod
 from specterm1d.term.caps import TerminalCaps, choose_renderer, detect
 
 
@@ -36,35 +37,69 @@ def test_kitty_detected_from_env_when_query_is_silent():
     assert c.kitty is True
 
 
-def test_term_only_kitty_detection_keeps_cell_mouse():
-    c = detect(env={"TERM": "xterm-kitty"}, is_tty=True,
-               size_fn=fake_size(), query_fn=fake_query({}))
-    assert c.pixel_mouse is False
-
-
-def test_native_kitty_with_pixel_geometry_enables_pixel_mouse():
-    c = detect(env={"KITTY_WINDOW_ID": "1"},
-               is_tty=True, size_fn=fake_size(), query_fn=fake_query({}))
-    assert getattr(c, "pixel_mouse", False) is True
-
-
-def test_native_kitty_without_pixel_geometry_keeps_cell_mouse():
-    c = detect(env={"TERM": "xterm-kitty", "KITTY_WINDOW_ID": "1"},
-               is_tty=True, size_fn=fake_size(xp=0, yp=0),
-               query_fn=fake_query({}))
-    assert c.pixel_mouse is False
-
-
 def test_ghostty_is_recognised():
     c = detect(env={"TERM_PROGRAM": "ghostty"}, is_tty=True,
                size_fn=fake_size(), query_fn=fake_query({}))
     assert c.kitty is True
 
 
-def test_kitty_compatible_terminals_keep_cell_mouse():
-    c = detect(env={"TERM_PROGRAM": "ghostty", "KITTY_WINDOW_ID": "1"},
-               is_tty=True,
-               size_fn=fake_size(), query_fn=fake_query({}))
+# ---- pixel mouse, asked for rather than inferred --------------------
+
+def decrqm(state):
+    """A DECRQM reply for mode 1016 in the given state."""
+    return fake_query({"\x1b[?1016$p": f"\x1b[?1016;{state}$y"})
+
+
+def test_a_terminal_that_reports_1016_reset_gets_pixel_mouse():
+    c = detect(env={}, is_tty=True, size_fn=fake_size(), query_fn=decrqm("2"))
+    assert c.pixel_mouse is True
+
+
+def test_a_terminal_that_reports_1016_already_set_gets_pixel_mouse():
+    c = detect(env={}, is_tty=True, size_fn=fake_size(), query_fn=decrqm("1"))
+    assert c.pixel_mouse is True
+
+
+def test_a_terminal_that_does_not_recognise_1016_keeps_cell_mouse():
+    c = detect(env={}, is_tty=True, size_fn=fake_size(), query_fn=decrqm("0"))
+    assert c.pixel_mouse is False
+
+
+def test_a_permanently_reset_1016_keeps_cell_mouse():
+    c = detect(env={}, is_tty=True, size_fn=fake_size(), query_fn=decrqm("4"))
+    assert c.pixel_mouse is False
+
+
+def test_silence_on_the_1016_query_keeps_cell_mouse():
+    c = detect(env={"TERM": "xterm-kitty", "KITTY_WINDOW_ID": "1"},
+               is_tty=True, size_fn=fake_size(), query_fn=fake_query({}))
+    assert c.pixel_mouse is False
+
+
+def test_ghostty_gets_pixel_mouse_when_it_reports_1016():
+    # Measured: ghostty answers DECRQM 1016 with ";2" and reports pixel
+    # coordinates. Vendor identity was the wrong thing to gate this on.
+    c = detect(env={"TERM_PROGRAM": "ghostty"}, is_tty=True,
+               size_fn=fake_size(), query_fn=decrqm("2"))
+    assert c.pixel_mouse is True
+
+
+def test_a_sixel_terminal_gets_pixel_mouse_without_kitty_graphics():
+    c = detect(env={}, is_tty=True, size_fn=fake_size(),
+               query_fn=fake_query({"\x1b[?1016$p": "\x1b[?1016;2$y",
+                                    "\x1b[c": "\x1b[?62;1;4;6;9c"}))
+    assert (c.kitty, c.sixel, c.pixel_mouse) == (False, True, True)
+
+
+def test_pixel_mouse_needs_the_terminal_to_report_pixels():
+    c = detect(env={}, is_tty=True, size_fn=fake_size(xp=0, yp=0),
+               query_fn=decrqm("2"))
+    assert c.pixel_mouse is False
+
+
+def test_pixel_mouse_stays_off_under_tmux():
+    c = detect(env={"TMUX": "/tmp/tmux-501/default,1,0"}, is_tty=True,
+               size_fn=fake_size(), query_fn=decrqm("2"))
     assert c.pixel_mouse is False
 
 
@@ -287,3 +322,54 @@ def test_an_explicit_iterm2_override_still_wins():
                         is_tty=True, gui=True)
     assert choose_renderer(caps, override="iterm2",
                            out=io.StringIO()).name == "iterm2"
+
+
+def test_query_returns_as_soon_as_a_decrqm_reply_arrives():
+    """DECRQM answers end in "$y", not "c".
+
+    Without that terminator the probe sits out its whole timeout on every
+    start-up, for a reply that already arrived.
+    """
+    import os
+    import threading
+    import time
+
+    from specterm1d.term.caps import query
+
+    master, slave = os.openpty()
+
+    def responder():
+        os.read(master, 64)
+        os.write(master, b"\x1b[?1016;2$y")
+
+    threading.Thread(target=responder, daemon=True).start()
+    try:
+        start = time.monotonic()
+        reply = query("\x1b[?1016$p", timeout=5.0, fd_in=slave, fd_out=slave)
+        elapsed = time.monotonic() - start
+    finally:
+        os.close(master)
+        os.close(slave)
+
+    assert reply == "\x1b[?1016;2$y"
+    assert elapsed < 1.0
+
+
+def test_detect_probes_the_terminal_when_given_no_query_function(monkeypatch):
+    """cli calls detect() without a query_fn.
+
+    If the default is "ask nothing", every queried capability silently reads
+    False no matter what the terminal can actually do.
+    """
+    asked = []
+
+    def spy(request, timeout=0.1):
+        asked.append(request)
+        return {"\x1b[?1016$p": "\x1b[?1016;2$y",
+                "\x1b[c": "\x1b[?62;1;4;6;9c"}.get(request)
+
+    monkeypatch.setattr(caps_mod, "query", spy)
+    c = detect(env={}, is_tty=True, size_fn=fake_size())
+
+    assert "\x1b[?1016$p" in asked
+    assert (c.pixel_mouse, c.sixel) == (True, True)

@@ -113,7 +113,7 @@ cursor +/- d/4, and `p` pans to cursor +/- d, which doubles the span.
 | `:log` | resume writing measurements to the log file |
 | `:mask` | highlight masked pixels |
 | `:model` | overlay the object model |
-| `:mouse [yes\|no]` | toggle positioning (inline by default; pixel-precise in native Kitty) |
+| `:mouse [yes\|no]` | toggle positioning (inline by default; pixel-precise where the terminal does DECSET 1016) |
 | `:nolog` | stop writing to the log file |
 | `:nosysid` | accepted for splot compatibility; no effect |
 | `:nsum` | 2D-image concern; specterm1d ingests 1D |

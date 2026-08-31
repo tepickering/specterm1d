@@ -94,9 +94,8 @@ class Session:
             self.message("mouse handled by graphics window")
             return
         self.mouse_enabled = enabled
-        pixel_mouse = bool(getattr(self.renderer, "pixel_mouse", False))
-        mouse_on = PIXEL_MOUSE_ON if pixel_mouse else MOUSE_ON
-        mouse_off = PIXEL_MOUSE_OFF if pixel_mouse else MOUSE_OFF
+        mouse_on = PIXEL_MOUSE_ON if self.pixel_mouse() else MOUSE_ON
+        mouse_off = PIXEL_MOUSE_OFF if self.pixel_mouse() else MOUSE_OFF
         try:
             self.out.write(mouse_on if enabled else mouse_off)
             self.out.flush()
@@ -104,11 +103,24 @@ class Session:
             pass
         self.message(f"mouse {'on' if enabled else 'off'}")
 
+    def pixel_mouse(self) -> bool:
+        """Whether mouse reports arrive as pixels rather than cells.
+
+        Both halves have to hold: the terminal must implement DECSET 1016,
+        and the backend must be placing pixels in the terminal for them to
+        mean anything. Read from caps rather than cached on the renderer, so
+        a resize cannot leave the mode disagreeing with the geometry.
+        """
+        return bool(self.caps.pixel_mouse
+                    and getattr(self.renderer, "inline_graphics", False))
+
     def _pixel_mouse_left(self, key: Key) -> bool:
-        """Whether Kitty says the pointer left and its coordinates are invalid."""
-        if key.name != "mouse" or not getattr(
-            self.renderer, "pixel_mouse", False
-        ):
+        """Whether the pointer left the window, invalidating its coordinates.
+
+        kitty's extension to the pixel protocol, and kitty's alone; terminals
+        that do not send it simply never trip this.
+        """
+        if key.name != "mouse" or not self.pixel_mouse():
             return False
         from specterm1d.term.input import parse_sgr_mouse
 
@@ -118,16 +130,16 @@ class Session:
     def on_mouse(self, col: int, row: int) -> None:
         """Map a 1-based terminal pointer position to data coordinates.
 
-        SGR mouse coordinates normally name cells. Native Kitty can report
-        pixels instead; mapping those through the terminal's pixel geometry
-        preserves motion within a cell. The position is then tested against
-        the axes bbox so margins and footer lines remain inactive.
+        SGR mouse coordinates normally name cells. A terminal that implements
+        DECSET 1016 reports pixels instead; mapping those through its pixel
+        geometry preserves motion within a cell. The position is then tested
+        against the axes bbox so margins and footer lines remain inactive.
         """
         rect = self.plot_rect()
         if rect.cols <= 0 or rect.rows <= 0:
             return
 
-        if getattr(self.renderer, "pixel_mouse", False):
+        if self.pixel_mouse():
             if not self.caps.pixel_width or not self.caps.pixel_height:
                 return
             cell_width = self.caps.pixel_width / self.caps.cols
@@ -679,8 +691,8 @@ class Session:
             return
         try:
             if self.mouse_enabled:
-                pixel_mouse = bool(getattr(self.renderer, "pixel_mouse", False))
-                self.out.write(PIXEL_MOUSE_OFF if pixel_mouse else MOUSE_OFF)
+                self.out.write(
+                    PIXEL_MOUSE_OFF if self.pixel_mouse() else MOUSE_OFF)
         except Exception:
             pass
         try:

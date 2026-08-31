@@ -48,11 +48,9 @@ class Renderer(Protocol):
     name: str
 
     # True for pixel-protocol renderers embedded in the terminal. These can
-    # support a graphical crosshair and default terminal mouse reporting on.
+    # support a graphical crosshair, default terminal mouse reporting on, and
+    # use pixel-resolution mouse reports where the terminal offers them.
     inline_graphics: bool = False
-
-    # True when SGR mouse reports use pixels rather than terminal cells.
-    pixel_mouse: bool = False
 
     # True when the backend's pixels are too coarse for rendered text and the
     # terminal should paint the axis decoration as glyphs instead.

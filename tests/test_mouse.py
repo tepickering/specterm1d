@@ -9,6 +9,7 @@ from specterm1d.session import Session
 from specterm1d.term.caps import TerminalCaps
 from specterm1d.term.input import Key, parse_keys, parse_sgr_mouse
 from specterm1d.term.kitty import KittyRenderer
+from specterm1d.term.sixel import SixelRenderer
 from tests.test_session import StubReader, make_session
 
 
@@ -25,13 +26,18 @@ def _run_cli(monkeypatch, tabular_fits, renderer, *flags):
 
 
 def _pixel_mouse_session():
+    return _inline_pixel_session(KittyRenderer)
+
+
+def _inline_pixel_session(renderer_cls):
+    """An inline backend on a terminal that reports pixel mouse positions."""
     session, out = make_session()
     caps = replace(
         session.caps, kitty=True, pixel_width=800, pixel_height=480,
         pixel_mouse=True,
     )
     session.caps = caps
-    session.renderer = KittyRenderer(out, caps)
+    session.renderer = renderer_cls(out, caps)
     session.text_chrome = False
     session.plot.bare = False
     return session, out
@@ -227,3 +233,40 @@ def test_halfblock_keeps_mouse_off_by_default(monkeypatch, tabular_fits):
 def test_mouse_can_still_enable_halfblock(monkeypatch, tabular_fits):
     session = _run_cli(monkeypatch, tabular_fits, "halfblock", "--mouse")
     assert session.mouse_enabled is True
+
+
+# ---- pixel mouse is a terminal capability, not a kitty one ---------
+
+def test_sixel_enables_the_pixel_mouse_sequence():
+    session, out = _inline_pixel_session(SixelRenderer)
+    session.set_mouse(True)
+    assert "\x1b[?1000;1002;1016h" in out.getvalue()
+
+
+def test_sixel_pixel_mouse_distinguishes_points_inside_one_cell():
+    session, _ = _inline_pixel_session(SixelRenderer)
+    session.view.reset_limits()
+
+    session.on_mouse(col=400, row=240)
+    first = session.view.cursor_x
+    session.on_mouse(col=401, row=240)
+
+    step = session.view.cursor_x - first
+    xlo, xhi = session.view.xlim
+    expected = (xhi - xlo) / (
+        session.plot.ax.get_position().width * session.caps.pixel_width
+    )
+    assert step == pytest.approx(expected)
+
+
+def test_halfblock_keeps_cell_coordinates_even_where_1016_is_offered():
+    """The terminal may support pixel reports while the backend cannot use
+    them: halfblock paints its own chrome and has no pixel placement."""
+    session, out = make_session()
+    session.caps = replace(
+        session.caps, pixel_width=800, pixel_height=480, pixel_mouse=True,
+    )
+
+    session.set_mouse(True)
+
+    assert "\x1b[?1000;1002;1006h" in out.getvalue()

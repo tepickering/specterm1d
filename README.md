@@ -171,9 +171,11 @@ Three, stated plainly:
 - **The cursor is always keyboard-driven and optionally mouse-driven.** Arrow
   keys move a 2D crosshair and shift moves further. Inline Kitty, sixel and
   iTerm2 graphics enable click/drag positioning and draw the full crosshair by
-  default. Native Kitty uses pixel-coordinate mouse reports for smooth motion
-  when the terminal reports its pixel geometry; compatible terminals and other
-  backends retain cell coordinates. Halfblock leaves mouse reporting off. Use
+  default. Terminals that answer DECRQM for DECSET 1016 - kitty, ghostty and
+  the sixel terminals among them - report the pointer in pixels rather than
+  cells, so the cursor tracks it instead of snapping to the character grid.
+  Terminals that do not, and tmux, keep cell coordinates. Halfblock leaves
+  mouse reporting off, having no pixels to place. Use
   `--no-mouse` or `:mouse no` when you want the terminal's normal text selection
   instead.
 - **`%` cycles the extraction/calibration variant** (`OPT/COUNTS`,
