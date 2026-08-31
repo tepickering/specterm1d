@@ -76,3 +76,33 @@ def test_the_readme_cites_the_upstream_iterm2_reports():
 def test_the_wrong_iterm2_issue_is_not_cited():
     for path in (README, *sorted(DOCS.glob("*.md"))):
         assert WRONG_CITATION not in path.read_text(), path
+
+
+# ---- packaging guards ----------------------------------------------
+#
+# README.md is the PyPI long description. What renders on GitHub does not
+# necessarily render on PyPI, and a broken project page is only noticeable
+# after the version number has been spent.
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+# [text](target) where target is neither a URL, an anchor, nor a mail link.
+_RELATIVE_LINK = re.compile(r"\[[^\]]*\]\((?!https?://|#|mailto:)([^)]+)\)")
+
+
+def test_the_readme_has_no_repo_relative_links():
+    """PyPI serves the README detached from the repository.
+
+    A link like ``(docs/keys.md)`` resolves on GitHub and 404s on the
+    project page, where nobody who could fix it is looking.
+    """
+    assert _RELATIVE_LINK.findall(README.read_text()) == []
+
+
+def test_the_licence_text_ships_with_the_package():
+    """pyproject declares BSD-3-Clause, which requires the notice be
+    distributed. A declared licence with no text is a licence in name only."""
+    licence = ROOT / "LICENSE"
+    assert licence.is_file()
+    assert "Redistribution and use in source and binary forms" in \
+        licence.read_text()
