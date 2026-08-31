@@ -6,5 +6,11 @@ plot drawn in the terminal itself.
 ```{toctree}
 :maxdepth: 2
 
+install
+quickstart
+terminals
 keys
+measuring
+batch
+differences
 ```
