@@ -116,6 +116,14 @@ verb, and nothing the application can send collects the images. Its sixel path
 leaks too, at 4 MB/frame, so both inline backends step aside where a window is
 available. `--renderer iterm2` still forces the inline path.
 
+This is not specific to specterm1d. It has been reported upstream twice —
+[#3943](https://gitlab.com/gnachman/iterm2/-/issues/3943) in 2015 and
+[#10420](https://gitlab.com/gnachman/iterm2/-/issues/10420) in 2022, the
+latter reaching about 20 GB and surviving a scrollback clear and a session
+close — and closed both times. The behaviour is still present in 3.6.11, and
+has driven a machine into the OOM killer at 138 GB. There is no open upstream
+issue to wait on, so the window is where iTerm2 stays.
+
 To force either mode:
 
 ```

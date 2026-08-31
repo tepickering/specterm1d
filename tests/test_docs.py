@@ -47,3 +47,32 @@ def test_every_include_anchor_appears_in_the_readme_exactly_once():
         if readme.count(anchor) != 1
     }
     assert wrong == {}
+
+
+# The leak is the thing a user is most likely to hit and least likely to
+# diagnose, so both the warning and its citations are pinned.
+GOOD_CITATIONS = (
+    "gnachman/iterm2/-/issues/10420",
+    "gnachman/iterm2/-/issues/3943",
+)
+# Open, and about memory, but it blames tab count and its reporter says
+# terminal activity barely matters - the opposite of what we measured. Easy
+# to re-add in good faith, so it is pinned out.
+WRONG_CITATION = "11261"
+
+
+def test_the_terminals_page_warns_about_the_iterm2_leak():
+    page = (DOCS / "terminals.md").read_text()
+    assert "{warning}" in page
+    assert "iTerm2" in page
+
+
+def test_the_readme_cites_the_upstream_iterm2_reports():
+    readme = README.read_text()
+    missing = [url for url in GOOD_CITATIONS if url not in readme]
+    assert missing == []
+
+
+def test_the_wrong_iterm2_issue_is_not_cited():
+    for path in (README, *sorted(DOCS.glob("*.md"))):
+        assert WRONG_CITATION not in path.read_text(), path
