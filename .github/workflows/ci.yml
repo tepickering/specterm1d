@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    env:
+      # matplotlib must never reach for a display in CI.
+      MPLBACKEND: Agg
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: codestyle
+            python: "3.14"
+            extras: dev
+            command: ruff check .
+          - name: build_docs
+            python: "3.14"
+            extras: docs
+            command: sphinx-build -W --keep-going docs docs/_build/html
+          - name: test (3.14)
+            python: "3.14"
+            extras: dev
+            command: python -m pytest -q
+          - name: test (3.13)
+            python: "3.13"
+            extras: dev
+            command: python -m pytest -q
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: pip install -e '.[${{ matrix.extras }}]'
+      - run: ${{ matrix.command }}

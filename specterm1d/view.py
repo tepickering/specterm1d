@@ -1,0 +1,239 @@
+"""View state: what part of which spectrum is on screen, and in what units.
+
+Every axis concern lives here. ``display_spec()`` hands ``plot.py`` a Spec
+whose wave array is already in display coordinates and sorted ascending, so
+the plotting code never has to know about velocity, pixel indices, or
+frequency units running backwards.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+import astropy.units as u
+import numpy as np
+
+from specterm1d.plot import PlotRequest, autoscale
+from specterm1d.spec import Spec, SpecCollection, SpecEntry, build_spec
+
+C_KMS = 299792.458
+
+
+@dataclass
+class Axis:
+    """Maps between wavelength and the displayed x coordinate."""
+
+    mode: str = "wave"                    # 'wave' | 'pixel' | 'velocity'
+    unit: u.UnitBase = u.AA
+    velocity_origin: float | None = None  # Angstroms
+
+    def to_display(self, spec: Spec, wave) -> np.ndarray:
+        wave = np.asarray(wave, dtype=float)
+        if self.mode == "pixel":
+            return np.interp(wave, spec.wave, np.arange(spec.npix, dtype=float))
+        if self.mode == "velocity":
+            w0 = self.velocity_origin
+            if not w0:
+                return wave
+            return C_KMS * (wave - w0) / w0
+        quantity = wave * spec.wave_unit
+        return quantity.to(self.unit, equivalencies=u.spectral()).value
+
+    def to_wave(self, spec: Spec, x) -> np.ndarray:
+        x = np.asarray(x, dtype=float)
+        if self.mode == "pixel":
+            return np.interp(x, np.arange(spec.npix, dtype=float), spec.wave)
+        if self.mode == "velocity":
+            w0 = self.velocity_origin
+            if not w0:
+                return x
+            return w0 * (1.0 + x / C_KMS)
+        quantity = x * self.unit
+        return quantity.to(spec.wave_unit, equivalencies=u.spectral()).value
+
+    def label(self) -> str:
+        if self.mode == "pixel":
+            return "Pixel"
+        if self.mode == "velocity":
+            return "Velocity (km/s)"
+        return f"Wavelength ({self.unit.to_string()})"
+
+
+@dataclass
+class ViewState:
+    collection: SpecCollection
+    index: int = 0
+    variant: str | None = None
+    xlim: tuple[float, float] | None = None
+    ylim: tuple[float, float] | None = None
+    axis: Axis = field(default_factory=Axis)
+
+    show_sigma: bool = False
+    show_mask: bool = False
+    overlays: set[str] = field(default_factory=set)
+    histogram: bool = False
+    zero_base: bool = False
+    flip: bool = False
+    flip_y: bool = False
+    window_reset: bool = True      # :wreset - re-autoscale on entry change
+    overplot_next: bool = False
+
+    cursor_x: float | None = None
+    cursor_y: float | None = None
+    cursor_y_locked: bool = False
+    """True once the cursor's y has been placed deliberately.
+
+    Until then it rides the spectrum, which is where a continuum mark almost
+    always wants to be. It matters most where a terminal cell of y is worth
+    hundreds of times the continuum level: mid-window, the old default, is
+    then a continuum guess so wrong that the profile fit has nothing to work
+    with. Moving y yourself - the arrow keys, the pointer, an 'h' level -
+    locks it, because that is the whole point of those.
+    """
+    markers: list[float] = field(default_factory=list)
+    fits: list[tuple[np.ndarray, np.ndarray]] = field(default_factory=list)
+    overrides: dict[str, Spec] = field(default_factory=dict)
+    undo_stack: list[tuple[str, "Spec | None", str]] = field(default_factory=list)
+
+    @property
+    def entry(self) -> SpecEntry:
+        return self.collection[self.index]
+
+    def _spec_key(self) -> str:
+        return f"{self.index}:{self.variant or self.entry.default}"
+
+    def push_transform(self, spec: Spec, label: str) -> None:
+        key = self._spec_key()
+        self.undo_stack.append((key, self.overrides.get(key), label))
+        self.overrides[key] = spec
+
+    def undo(self) -> str | None:
+        if not self.undo_stack:
+            return None
+        key, previous, label = self.undo_stack.pop()
+        if previous is None:
+            self.overrides.pop(key, None)
+        else:
+            self.overrides[key] = previous
+        return label
+
+    def current_spec(self) -> Spec:
+        """The underlying spectrum, in wavelength space."""
+        override = self.overrides.get(self._spec_key())
+        if override is not None:
+            return override
+        entry = self.entry
+        key = self.variant if self.variant in entry.variants else entry.default
+        return entry.variants[key]
+
+    def display_spec(self) -> Spec:
+        """The spectrum re-expressed on the current display axis."""
+        spec = self.current_spec()
+        if self.axis.mode == "wave" and self.axis.unit == spec.wave_unit:
+            return spec
+        x = self.axis.to_display(spec, spec.wave)
+        return build_spec(
+            x, spec.flux,
+            sigma=spec.sigma,
+            mask=spec.good,
+            mask_convention="good",
+            wave_unit=self.axis.unit if self.axis.mode == "wave" else u.dimensionless_unscaled,
+            flux_unit=spec.flux_unit,
+            overlays=spec.overlays,
+            meta=spec.meta,
+            require_positive=False,   # velocity and pixel axes go non-positive
+        )
+
+    def reset_limits(self) -> None:
+        # A fresh window is a fresh cursor: whatever y was chosen was chosen
+        # against limits that no longer exist.
+        self.cursor_y_locked = False
+        spec = self.display_spec()
+        good = spec.wave[spec.good]
+        if good.size == 0:
+            self.xlim = (0.0, 1.0)
+            self.ylim = (0.0, 1.0)
+            return
+        self.xlim = (float(good.min()), float(good.max()))
+        self.ylim = autoscale(spec, self.xlim, zero_base=self.zero_base)
+
+    def follow_flux(self) -> None:
+        """Put the cursor's y on the spectrum, unless it has been placed."""
+        if self.cursor_y_locked or self.cursor_x is None:
+            return
+        spec = self.display_spec()
+        if spec.npix == 0:
+            return
+        pixel = int(np.clip(np.searchsorted(spec.wave, self.cursor_x),
+                            0, spec.npix - 1))
+        value = float(spec.flux[pixel])
+        if np.isfinite(value):
+            self.cursor_y = value
+
+    def lock_cursor_y(self) -> None:
+        self.cursor_y_locked = True
+
+    def rescale_y(self) -> None:
+        spec = self.display_spec()
+        self.ylim = autoscale(spec, self.xlim or (spec.wave.min(), spec.wave.max()),
+                              zero_base=self.zero_base)
+
+    def set_axis(self, mode: str | None = None, unit: u.UnitBase | None = None,
+                 velocity_origin: float | None = None) -> None:
+        """Change the axis, carrying the current window across the change."""
+        spec = self.current_spec()
+        old_wave_limits = None
+        if self.xlim is not None:
+            old_wave_limits = self.axis.to_wave(spec, np.array(self.xlim))
+
+        if mode is not None:
+            self.axis.mode = mode
+        if unit is not None:
+            self.axis.unit = unit
+        if velocity_origin is not None:
+            self.axis.velocity_origin = velocity_origin
+
+        if old_wave_limits is not None:
+            new = self.axis.to_display(spec, old_wave_limits)
+            self.xlim = (float(min(new)), float(max(new)))
+
+    def to_request(self, title: str = "", with_cursor: bool = True,
+                   cursor_crosshair: bool = False) -> PlotRequest:
+        """One frame's worth of state.
+
+        ``with_cursor`` carries the live cursor separately from measurement
+        markers. ``cursor_crosshair`` adds its horizontal arm for inline
+        graphics. Two-window mode leaves the frame cursor out: it has a real
+        pointer and a blitted crosshair, and a drawn cursor would freeze behind
+        the pointer and read as a second, stale cursor.
+        """
+        spec = self.display_spec()
+        if self.xlim is None or self.ylim is None:
+            self.reset_limits()
+        xlim = self.xlim
+        if self.flip:
+            xlim = (xlim[1], xlim[0])
+        ylim = self.ylim
+        if self.flip_y:
+            ylim = (ylim[1], ylim[0])
+        cursor = None
+        if with_cursor and self.cursor_x is not None:
+            cursor = (self.cursor_x, self.cursor_y)
+        ylabel = "Flux"
+        if spec.flux_unit is not None:
+            ylabel = f"Flux ({spec.flux_unit.to_string()})"
+        return PlotRequest(
+            spec=spec,
+            xlim=xlim,
+            ylim=ylim,
+            show_sigma=self.show_sigma,
+            show_mask=self.show_mask,
+            overlays=tuple(sorted(self.overlays)),
+            histogram=self.histogram,
+            title=title,
+            xlabel=self.axis.label(),
+            ylabel=ylabel,
+            markers=tuple(self.markers),
+            cursor=cursor,
+            cursor_crosshair=cursor_crosshair,
+            fits=tuple(self.fits),
+        )
