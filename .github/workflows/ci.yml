@@ -37,10 +37,31 @@ jobs:
             extras: dev
             command: python -m pytest -q
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+        with:
+          # setuptools_scm derives the version from the tag history, and a
+          # shallow clone has none.
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
           cache: pip
       - run: pip install -e '.[${{ matrix.extras }}]'
       - run: ${{ matrix.command }}
+
+  package:
+    name: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install build twine
+      # Catches a broken long description or bad metadata on the pull request
+      # that introduces it. On release day the version number is already spent.
+      - run: python -m build
+      - run: twine check --strict dist/*

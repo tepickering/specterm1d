@@ -4,6 +4,12 @@ build:
   os: ubuntu-24.04
   tools:
     python: "3.14"
+  jobs:
+    post_checkout:
+      # setuptools_scm reads the version from the git tag, and Read the Docs
+      # clones shallow with no tags. Without this the version reads as a bare
+      # development guess.
+      - git fetch --unshallow --tags || git fetch --tags
 
 sphinx:
   configuration: docs/conf.py

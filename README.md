@@ -140,7 +140,7 @@ rather than refusing to start.
 
 ## Keys
 
-The complete reference is in [docs/keys.md](docs/keys.md). The most-used:
+The complete reference is in [the key and command reference](https://specterm1d.readthedocs.io/en/latest/keys.html). The most-used:
 
 | Key | Action |
 |-----|--------|

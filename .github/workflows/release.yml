@@ -1,0 +1,63 @@
+name: Release
+
+# Publishing to PyPI is irreversible: a version number, once used, can never
+# be reused even after the file is deleted. So the artefact is built and
+# checked once, then uploaded from that same artefact - and TestPyPI can be
+# rehearsed by hand before anything reaches the real index.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Index to publish to
+        type: choice
+        options: [testpypi, pypi]
+        default: testpypi
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # setuptools_scm needs the tag to produce a release version rather
+          # than a development guess.
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - run: pip install build twine
+      - run: python -m build
+      - run: twine check --strict dist/*
+      - name: Refuse to publish a development version
+        # A tagless build produces something like 0.1.dev48+gae58a27, whose
+        # local-version segment PyPI rejects outright. Failing here says why,
+        # rather than leaving it to a confusing upload error.
+        run: |
+          version=$(ls dist/*.tar.gz | sed -E 's/.*specterm1d-(.*)\.tar\.gz/\1/')
+          echo "built version: $version"
+          case "$version" in
+            *dev*|*+*) echo "::error::$version is not a release version; tag the commit first"; exit 1 ;;
+          esac
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # Trusted publishing: PyPI verifies this workflow's OIDC identity, so
+    # there is no API token to store or leak.
+    environment: ${{ github.event.inputs.target || 'pypi' }}
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@v1.14.2
+        with:
+          repository-url: ${{ github.event.inputs.target == 'testpypi' && 'https://test.pypi.org/legacy/' || 'https://upload.pypi.org/legacy/' }}

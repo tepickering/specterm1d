@@ -1,14 +1,29 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77", "setuptools_scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "specterm1d"
-version = "0.1.0.dev0"
+# Derived from the git tag by setuptools_scm, so a release is a tag and
+# nothing else can drift out of step with it.
+dynamic = ["version"]
 description = "Terminal-based 1D spectrum viewer with IRAF splot keybindings"
 readme = "README.md"
 requires-python = ">=3.13"
 license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+keywords = ["spectroscopy", "astronomy", "terminal", "splot", "fits"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
 authors = [{name = "T. E. Pickering", email = "te.pickering@gmail.com"}]
 dependencies = [
     # fitting.py uses np.trapezoid; np.trapz is gone in numpy 2.x
@@ -25,12 +40,20 @@ sixel = ["libsixel-python>=0.5"]
 docs = ["sphinx>=9.1", "myst-parser>=5.1", "furo>=2025.12.19"]
 dev = ["pytest>=7.4", "pytest-cov", "ruff"]
 
+[project.urls]
+Homepage = "https://github.com/tepickering/specterm1d"
+Documentation = "https://specterm1d.readthedocs.io"
+Repository = "https://github.com/tepickering/specterm1d"
+Issues = "https://github.com/tepickering/specterm1d/issues"
+
 [project.scripts]
 specterm1d = "specterm1d.cli:main"
 st1d = "specterm1d.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["specterm1d*"]
+
+[tool.setuptools_scm]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
