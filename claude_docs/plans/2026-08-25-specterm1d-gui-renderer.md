@@ -18,7 +18,7 @@ no pinned status line.
 **Tech Stack:** Python 3.13, matplotlib (`backend_qtagg` / `backend_tkagg` /
 `backend_macosx`, all Agg subclasses), numpy, pytest.
 
-**Spec:** `docs/superpowers/specs/2026-08-25-specterm1d-gui-renderer-design.md`
+**Spec:** `claude_docs/specs/2026-08-25-specterm1d-gui-renderer-design.md`
 
 ## Global Constraints
 

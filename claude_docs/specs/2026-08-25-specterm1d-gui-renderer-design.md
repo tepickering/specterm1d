@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-25
 **Status:** Approved, ready for implementation planning
-**Extends:** `docs/superpowers/specs/2026-08-24-specterm1d-design.md`
+**Extends:** `claude_docs/specs/2026-08-24-specterm1d-design.md`
 
 ## Purpose
 

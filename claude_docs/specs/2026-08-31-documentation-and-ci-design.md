@@ -34,11 +34,12 @@ Theme is `furo`. A new `docs` extra in `pyproject.toml` carries
 `sphinx`, `myst-parser` and `furo`; `.readthedocs.yaml` pins Python 3.14 and
 installs `.[docs]`.
 
-`conf.py` must set `exclude_patterns` to cover `superpowers/**` and `_build`.
-`docs/superpowers/` already holds four tracked specs and plans that are
-development records, not site content; without the exclusion Sphinx picks them
-up and `-W` turns "document isn't included in any toctree" into a build
-failure.
+Development records - the specs and plans formerly under
+`docs/superpowers/` - move to `claude_docs/` as part of this work, so Sphinx
+never sees them. They are working notes rather than site content, and leaving
+them inside the source tree would need an `exclude_patterns` entry that a
+later addition could silently outgrow; under `-W`, a file that is neither
+excluded nor in a toctree fails the build. `conf.py` still excludes `_build`.
 
 ## Page structure
 
@@ -84,7 +85,9 @@ included prose, plus upstream citations the README currently lacks:
   does not free inline-image memory.
 
 Both are closed, and neither appears to have been fixed: we measure the same
-behaviour on 3.6.11 in 2026 at 1.7 MB per frame. The documentation therefore
+behaviour on 3.6.11 in 2026 at 1.7 MB per frame, and it has driven this
+project's author into the OOM killer at 138 GB resident - the same order as
+#10420's report, and from ordinary use rather than a stress test. The documentation therefore
 says the leak has been reported upstream twice and closed both times, and is
 still reproducible — not that a fix is pending. There is no open issue to wait
 on, so nothing should promise the demotion is temporary.
@@ -133,9 +136,11 @@ A build badge goes at the top of `README.md`.
 
 ## Order of work
 
-1. Sphinx scaffold, `conf.py` with the `superpowers/**` exclusion, `docs`
-   extra, `.readthedocs.yaml`.
-2. Pages and the README includes.
-3. The anchor test.
-4. The iTerm2 admonition and citations.
-5. GitHub Actions, last: `build_docs` needs something to build.
+1. Move `docs/superpowers/` to `claude_docs/`, repointing the
+   cross-references inside those files. (Done ahead of the plan, since the
+   spec itself lived there.)
+2. Sphinx scaffold, `conf.py`, the `docs` extra, `.readthedocs.yaml`.
+3. Pages and the README includes.
+4. The anchor test.
+5. The iTerm2 admonition and citations.
+6. GitHub Actions, last: `build_docs` needs something to build.
