@@ -1,5 +1,7 @@
 # specterm1d
 
+[![CI](https://github.com/tepickering/specterm1d/actions/workflows/ci.yml/badge.svg)](https://github.com/tepickering/specterm1d/actions/workflows/ci.yml)
+
 A terminal-based viewer for 1D spectra, with IRAF `splot`'s keybindings.
 
 Opens anything `specutils` can read — IRAF multispec, `tabular-fits`,
