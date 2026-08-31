@@ -1,7 +1,9 @@
 # specterm1d
 
-A terminal-based viewer for 1D spectra, with IRAF `splot` keybindings and a
-plot drawn in the terminal itself.
+```{include} ../README.md
+:start-after: "workflows/ci.yml)"
+:end-before: "## Install"
+```
 
 ```{toctree}
 :maxdepth: 2
