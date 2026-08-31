@@ -10,3 +10,4 @@ dist/
 splot.log
 specterm1d.egg-info/
 .codegraph/
+docs/_build/
