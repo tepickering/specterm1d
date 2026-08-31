@@ -122,6 +122,7 @@ def _libsixel_encode(rgba: np.ndarray) -> str | None:
 
 class SixelRenderer:
     name = "sixel"
+    inline_graphics = True
 
     def __init__(self, out, caps):
         self.out = out

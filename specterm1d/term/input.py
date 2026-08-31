@@ -137,7 +137,7 @@ def parse_keys(buf: bytes) -> tuple[list[Key], bytes]:
 def parse_sgr_mouse(text: str) -> tuple[int, int, int] | None:
     """(button, col, row) from an SGR mouse report; None if not one.
 
-    Columns and rows are 1-based, as the terminal reports them.
+    Coordinates are 1-based cells, or pixels when DECSET 1016 is active.
     """
     match = _SGR_MOUSE.match(text)
     if match is None:

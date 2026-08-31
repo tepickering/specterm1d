@@ -196,6 +196,19 @@ def test_a_resize_that_reports_no_pixels_keeps_what_it_had():
     assert session.caps.pixel_height == 1600
 
 
+def test_a_resize_preserves_pixel_mouse_capability():
+    caps = TerminalCaps(
+        kitty=True, iterm2=False, sixel=False, truecolor=True,
+        rows=40, cols=120, pixel_width=2400, pixel_height=1600,
+        is_tty=True, pixel_mouse=True,
+    )
+    session = _session_with(caps)
+
+    session.on_resize(20, 60, pixel_width=1200, pixel_height=800)
+
+    assert session.caps.pixel_mouse is True
+
+
 def _line_session():
     """A 2500:1 spectrum, where mid-window is a hopeless continuum guess.
 

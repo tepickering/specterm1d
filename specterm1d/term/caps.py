@@ -61,6 +61,8 @@ class TerminalCaps:
     # Worth trying a graphics window. choose_renderer reads this by name
     # through the same getattr the protocol flags use.
     gui: bool = False
+    # Native Kitty can report SGR mouse positions in pixels (DECSET 1016).
+    pixel_mouse: bool = False
 
 
 def register_renderer(name: str, factory: Callable) -> None:
@@ -161,10 +163,17 @@ def detect(env: dict | None = None, query_fn: Callable | None = None,
 
     sixel = _da_has_sixel(query_fn(DA_QUERY) if query_fn else None)
 
+    native_kitty = (
+        not in_tmux
+        and env.get("TERM_PROGRAM") not in _KITTY_PROGRAMS
+        and bool(env.get("KITTY_WINDOW_ID"))
+    )
+    pixel_mouse = bool(kitty and native_kitty and xpixel and ypixel)
+
     return TerminalCaps(
         kitty=kitty, iterm2=iterm2, sixel=sixel, truecolor=truecolor,
         rows=rows, cols=cols, pixel_width=xpixel, pixel_height=ypixel,
-        is_tty=True, gui=gui_backend.available(env),
+        is_tty=True, gui=gui_backend.available(env), pixel_mouse=pixel_mouse,
     )
 
 

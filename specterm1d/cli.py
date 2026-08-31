@@ -29,8 +29,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="shortcut for --renderer gui (a matplotlib window)")
     parser.add_argument("--format", help="force a loader instead of sniffing")
     parser.add_argument("--units", help="initial dispersion units, e.g. nm, um, GHz")
-    parser.add_argument("--mouse", action="store_true",
-                        help="enable mouse cursor positioning (hijacks selection)")
+    parser.add_argument(
+        "--mouse", action=argparse.BooleanOptionalAction, default=None,
+        help="toggle mouse positioning (default: on for inline graphics)",
+    )
     parser.add_argument("--log", default="splot.log", help="measurement log file")
     parser.add_argument("--debug", action="store_true",
                         help="show full tracebacks instead of one-line errors")
@@ -132,7 +134,10 @@ def main(argv: list[str] | None = None) -> int:
         import astropy.units as u
         session.view.set_axis(unit=u.Unit(args.units))
 
-    if args.mouse:
+    mouse_enabled = args.mouse
+    if mouse_enabled is None:
+        mouse_enabled = bool(getattr(renderer, "inline_graphics", False))
+    if mouse_enabled:
         session.set_mouse(True)
 
     try:

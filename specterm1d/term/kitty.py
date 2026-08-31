@@ -48,11 +48,13 @@ def kitty_chunks(payload: bytes, image_id: int, cols: int, rows: int,
 
 class KittyRenderer:
     name = "kitty"
+    inline_graphics = True
 
     def __init__(self, out, caps, image_id: int = 1):
         self.out = out
         self.caps = caps
         self.image_id = image_id
+        self.pixel_mouse = caps.pixel_mouse
 
     def _cell_size(self) -> tuple[float, float]:
         if self.caps.pixel_width and self.caps.pixel_height and self.caps.cols \

@@ -265,6 +265,24 @@ def test_render_still_returns_an_independent_copy_of_the_frame():
     assert np.array_equal(first, before)     # not a view onto the canvas
 
 
+def test_crosshair_cursor_draws_horizontal_and_vertical_lines():
+    spec = build_spec(np.linspace(0.0, 4.0, 20), np.ones(20))
+    request = PlotRequest(spec=spec, xlim=(0.0, 4.0), ylim=(0.0, 3.0))
+    request.cursor = (2.0, 1.5)
+    request.cursor_crosshair = True
+    plot = SpectrumPlot(320, 200)
+
+    plot.draw(request)
+
+    lines = plot.ax.lines
+    vertical = [np.asarray(line.get_xdata(), dtype=float) for line in lines]
+    horizontal = [np.asarray(line.get_ydata(), dtype=float) for line in lines]
+    assert any(values.size == 2 and np.allclose(values, [2.0, 2.0])
+               for values in vertical)
+    assert any(values.size == 2 and np.allclose(values, [1.5, 1.5])
+               for values in horizontal)
+
+
 # ---- chrome sized to the terminal cell -----------------------------
 
 def test_a_large_figure_keeps_its_tuned_margins():

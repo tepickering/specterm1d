@@ -157,10 +157,13 @@ def _one_entry_view():
     return view
 
 
-def test_to_request_draws_the_cursor_as_a_marker_by_default():
+def test_to_request_keeps_the_live_cursor_separate_from_markers():
     view = _one_entry_view()
     view.cursor_x = 5500.0
-    assert 5500.0 in view.to_request().markers
+    view.cursor_y = 1.25
+    request = view.to_request()
+    assert getattr(request, "cursor", None) == (5500.0, 1.25)
+    assert request.markers == ()
 
 
 def test_to_request_can_leave_the_cursor_out():
@@ -169,7 +172,9 @@ def test_to_request_can_leave_the_cursor_out():
     # so it freezes behind the pointer and reads as a second, wrong cursor.
     view = _one_entry_view()
     view.cursor_x = 5500.0
-    assert 5500.0 not in view.to_request(with_cursor=False).markers
+    request = view.to_request(with_cursor=False)
+    assert getattr(request, "cursor", None) is None
+    assert request.markers == ()
 
 
 def test_leaving_the_cursor_out_keeps_the_real_markers():

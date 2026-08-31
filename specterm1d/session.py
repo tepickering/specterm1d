@@ -34,6 +34,9 @@ SHOW_CURSOR = "\x1b[?25h"
 CLEAR_SCREEN = "\x1b[2J\x1b[H"
 MOUSE_ON = "\x1b[?1000;1002;1006h"
 MOUSE_OFF = "\x1b[?1000;1002;1006l"
+PIXEL_MOUSE_ON = "\x1b[?1000;1002;1016h"
+PIXEL_MOUSE_OFF = "\x1b[?1000;1002;1016l"
+PIXEL_MOUSE_LEAVE = 1 << 8
 
 # Arrow-key step as a fraction of the visible x range.
 CURSOR_STEP = 0.002
@@ -86,27 +89,58 @@ class Session:
         self._torn_down = False
 
     def set_mouse(self, enabled: bool) -> None:
+        if self.interactive:
+            self.mouse_enabled = False
+            self.message("mouse handled by graphics window")
+            return
         self.mouse_enabled = enabled
+        pixel_mouse = bool(getattr(self.renderer, "pixel_mouse", False))
+        mouse_on = PIXEL_MOUSE_ON if pixel_mouse else MOUSE_ON
+        mouse_off = PIXEL_MOUSE_OFF if pixel_mouse else MOUSE_OFF
         try:
-            self.out.write(MOUSE_ON if enabled else MOUSE_OFF)
+            self.out.write(mouse_on if enabled else mouse_off)
             self.out.flush()
         except Exception:
             pass
         self.message(f"mouse {'on' if enabled else 'off'}")
 
-    def on_mouse(self, col: int, row: int) -> None:
-        """Map a 1-based terminal cell to data coordinates.
+    def _pixel_mouse_left(self, key: Key) -> bool:
+        """Whether Kitty says the pointer left and its coordinates are invalid."""
+        if key.name != "mouse" or not getattr(
+            self.renderer, "pixel_mouse", False
+        ):
+            return False
+        from specterm1d.term.input import parse_sgr_mouse
 
-        The axes occupy only part of the figure, so the cell is first mapped
-        to a figure fraction and then tested against the axes bbox; clicks in
-        the margins, the status line or the message line are ignored.
+        report = parse_sgr_mouse(key.char)
+        return report is not None and bool(report[0] & PIXEL_MOUSE_LEAVE)
+
+    def on_mouse(self, col: int, row: int) -> None:
+        """Map a 1-based terminal pointer position to data coordinates.
+
+        SGR mouse coordinates normally name cells. Native Kitty can report
+        pixels instead; mapping those through the terminal's pixel geometry
+        preserves motion within a cell. The position is then tested against
+        the axes bbox so margins and footer lines remain inactive.
         """
         rect = self.plot_rect()
         if rect.cols <= 0 or rect.rows <= 0:
             return
 
-        frac_x = (col - 1 - rect.col) / rect.cols
-        frac_y = 1.0 - (row - 1 - rect.row) / rect.rows
+        if getattr(self.renderer, "pixel_mouse", False):
+            if not self.caps.pixel_width or not self.caps.pixel_height:
+                return
+            cell_width = self.caps.pixel_width / self.caps.cols
+            cell_height = self.caps.pixel_height / self.caps.rows
+            frac_x = (col - 1 - rect.col * cell_width) / (
+                rect.cols * cell_width
+            )
+            frac_y = 1.0 - (row - 1 - rect.row * cell_height) / (
+                rect.rows * cell_height
+            )
+        else:
+            frac_x = (col - 1 - rect.col) / rect.cols
+            frac_y = 1.0 - (row - 1 - rect.row) / rect.rows
         bbox = self.plot.ax.get_position()
 
         if not (bbox.x0 <= frac_x <= bbox.x1 and bbox.y0 <= frac_y <= bbox.y1):
@@ -194,6 +228,7 @@ class Session:
             pixel_width=pixel_width or self.caps.pixel_width,
             pixel_height=pixel_height or self.caps.pixel_height,
             is_tty=self.caps.is_tty, gui=self.caps.gui,
+            pixel_mouse=self.caps.pixel_mouse,
         )
         self.renderer.teardown()      # force a full repaint
         self._chrome_cache = None
@@ -264,7 +299,10 @@ class Session:
         width, height = self.renderer.target_pixels(rect.rows, rect.cols)
         self.plot.cell_px = self.cell_px()
         self.plot.resize(width, height)
-        request = self.view.to_request(title=self.title())
+        request = self.view.to_request(
+            title=self.title(),
+            cursor_crosshair=bool(getattr(self.renderer, "inline_graphics", False)),
+        )
         rgba = self.plot.render(request)
         self.renderer.draw(rgba, rect)
         if layout is not None:
@@ -424,12 +462,15 @@ class Session:
             return self._handle_text_page(key)
 
         if key.name == "mouse":
+            if self._pixel_mouse_left(key):
+                return True
             if self.mouse_enabled:
                 from specterm1d.term.input import parse_sgr_mouse
 
                 report = parse_sgr_mouse(key.char)
                 if report is not None:
-                    self.on_mouse(report[1], report[2])
+                    _, col, row = report
+                    self.on_mouse(col, row)
             return True
 
         if self.pending is not None:
@@ -607,7 +648,11 @@ class Session:
                 running = True
                 while running:
                     keys = reader.read(timeout=0.25)
+                    redraw = False
                     for key in keys:
+                        if self._pixel_mouse_left(key):
+                            continue
+                        redraw = True
                         running = self.handle(key)
                         if not running:
                             break
@@ -617,7 +662,7 @@ class Session:
                     # as long as the plot was open - and, on iTerm2, an inline
                     # image the terminal never frees. Resizes arrive as
                     # Key("resize"), so they are in the batch like any key.
-                    if running and keys:
+                    if running and redraw:
                         self.render()
             self.finished = True
         finally:
@@ -634,7 +679,8 @@ class Session:
             return
         try:
             if self.mouse_enabled:
-                self.out.write(MOUSE_OFF)
+                pixel_mouse = bool(getattr(self.renderer, "pixel_mouse", False))
+                self.out.write(PIXEL_MOUSE_OFF if pixel_mouse else MOUSE_OFF)
         except Exception:
             pass
         try:

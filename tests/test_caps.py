@@ -36,10 +36,36 @@ def test_kitty_detected_from_env_when_query_is_silent():
     assert c.kitty is True
 
 
+def test_term_only_kitty_detection_keeps_cell_mouse():
+    c = detect(env={"TERM": "xterm-kitty"}, is_tty=True,
+               size_fn=fake_size(), query_fn=fake_query({}))
+    assert c.pixel_mouse is False
+
+
+def test_native_kitty_with_pixel_geometry_enables_pixel_mouse():
+    c = detect(env={"KITTY_WINDOW_ID": "1"},
+               is_tty=True, size_fn=fake_size(), query_fn=fake_query({}))
+    assert getattr(c, "pixel_mouse", False) is True
+
+
+def test_native_kitty_without_pixel_geometry_keeps_cell_mouse():
+    c = detect(env={"TERM": "xterm-kitty", "KITTY_WINDOW_ID": "1"},
+               is_tty=True, size_fn=fake_size(xp=0, yp=0),
+               query_fn=fake_query({}))
+    assert c.pixel_mouse is False
+
+
 def test_ghostty_is_recognised():
     c = detect(env={"TERM_PROGRAM": "ghostty"}, is_tty=True,
                size_fn=fake_size(), query_fn=fake_query({}))
     assert c.kitty is True
+
+
+def test_kitty_compatible_terminals_keep_cell_mouse():
+    c = detect(env={"TERM_PROGRAM": "ghostty", "KITTY_WINDOW_ID": "1"},
+               is_tty=True,
+               size_fn=fake_size(), query_fn=fake_query({}))
+    assert c.pixel_mouse is False
 
 
 def test_kitty_is_not_probed_under_tmux():

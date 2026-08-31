@@ -242,6 +242,8 @@ class PlotRequest:
     xlabel: str = ""
     ylabel: str = ""
     markers: tuple[float, ...] = ()
+    cursor: tuple[float, float | None] | None = None
+    cursor_crosshair: bool = False
     fits: tuple[tuple[np.ndarray, np.ndarray], ...] = field(default_factory=tuple)
 
 
@@ -444,6 +446,10 @@ class SpectrumPlot:
 
         for xm in req.markers:
             ax.axvline(xm, color=COLOR_FG, lw=0.7, alpha=0.6)
+        if req.cursor is not None:
+            ax.axvline(req.cursor[0], color=COLOR_FG, lw=0.7, alpha=0.6)
+            if req.cursor_crosshair and req.cursor[1] is not None:
+                ax.axhline(req.cursor[1], color=COLOR_FG, lw=0.7, alpha=0.6)
 
         ax.set_xlim(*req.xlim)
         ax.set_ylim(*req.ylim)

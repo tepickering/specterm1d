@@ -36,7 +36,7 @@ Arrow keys move a crosshair, `?` pages the full keymap, `q` quits.
 |------|--------|
 | `--renderer kitty\|iterm2\|sixel\|gui\|halfblock` | force a backend instead of probing |
 | `--units nm` | start in other dispersion units (`um`, `GHz`, anything astropy knows) |
-| `--mouse` | enable click-to-position (off by default; see below) |
+| `--mouse` / `--no-mouse` | override click/drag positioning (on for inline graphics) |
 | `--format NAME` | force a loader instead of sniffing the file |
 | `--log FILE` | measurement log path (default `splot.log`) |
 | `--cursor FILE` | replay a keystroke script instead of reading the keyboard |
@@ -168,11 +168,14 @@ memory cannot misfire:
 
 Three, stated plainly:
 
-- **The cursor is keyboard-driven.** Arrow keys move a 2D crosshair, shift
-  moves further. This is how `splot` was used on Tektronix terminals with no
-  mouse. Mouse positioning is opt-in via `--mouse` or `:mouse yes`, because
-  mouse reporting hijacks the terminal's own text selection — which you want
-  when copying numbers out of the status line.
+- **The cursor is always keyboard-driven and optionally mouse-driven.** Arrow
+  keys move a 2D crosshair and shift moves further. Inline Kitty, sixel and
+  iTerm2 graphics enable click/drag positioning and draw the full crosshair by
+  default. Native Kitty uses pixel-coordinate mouse reports for smooth motion
+  when the terminal reports its pixel geometry; compatible terminals and other
+  backends retain cell coordinates. Halfblock leaves mouse reporting off. Use
+  `--no-mouse` or `:mouse no` when you want the terminal's normal text selection
+  instead.
 - **`%` cycles the extraction/calibration variant** (`OPT/COUNTS`,
   `BOX/COUNTS`, `OPT/FLAM`, …) rather than an image band, which is the useful
   analogue for pypeit products.

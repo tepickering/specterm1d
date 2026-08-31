@@ -225,6 +225,15 @@ def test_teardown_writes_no_terminal_restoration_in_gui_mode():
         assert sequence not in out.getvalue()
 
 
+def test_gui_mode_never_enables_terminal_mouse_reporting():
+    session, _, out = make_gui_session()
+
+    session.set_mouse(True)
+
+    assert session.mouse_enabled is False
+    assert "\x1b[?1000;1002;1006h" not in out.getvalue()
+
+
 # ---- cli wiring ----------------------------------------------------
 
 def test_gui_is_offered_as_a_renderer_choice():
@@ -343,9 +352,10 @@ def test_the_gui_render_does_not_draw_the_cursor_as_a_marker():
     session.view.markers.append(5100.0)
     session.render()
     assert requests[-1].markers == (5100.0,)
+    assert requests[-1].cursor is None
 
 
-def test_the_terminal_render_still_draws_the_cursor_as_a_marker():
+def test_the_halfblock_render_keeps_a_vertical_cursor():
     from specterm1d.term.halfblock import HalfblockRenderer
 
     out = io.StringIO()
@@ -360,4 +370,26 @@ def test_the_terminal_render_still_draws_the_cursor_as_a_marker():
     session.plot.render = lambda req: (requests.append(req),
                                        np.zeros((44, 80, 4), dtype=np.uint8))[1]
     session.render()
-    assert 5500.0 in requests[-1].markers
+    assert requests[-1].cursor == (5500.0, session.view.cursor_y)
+    assert requests[-1].cursor_crosshair is False
+
+
+def test_inline_graphics_request_a_crosshair_cursor():
+    from specterm1d.term.kitty import KittyRenderer
+
+    out = io.StringIO()
+    spec = build_spec(np.linspace(5000.0, 6000.0, 200), np.full(200, 1.0))
+    coll = SpecCollection(entries=[SpecEntry("A", {"F": spec}, "F")], path="x")
+    caps = TerminalCaps(True, False, False, True, 24, 80, 800, 480, True)
+    renderer = KittyRenderer(out, caps)
+    session = Session(coll, renderer, SpectrumPlot(800, 440), out, caps)
+    session.view.cursor_x = 5500.0
+    session.view.cursor_y = 1.25
+    requests = []
+    session.plot.render = lambda req: (requests.append(req),
+                                       np.zeros((440, 800, 4), dtype=np.uint8))[1]
+
+    session.render()
+
+    assert requests[-1].cursor == (5500.0, 1.25)
+    assert requests[-1].cursor_crosshair is True

@@ -15,6 +15,7 @@ from specterm1d.term.kitty import NOMINAL_CELL, png_bytes
 
 class ITerm2Renderer:
     name = "iterm2"
+    inline_graphics = True
 
     def __init__(self, out, caps):
         self.out = out
