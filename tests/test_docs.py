@@ -106,3 +106,10 @@ def test_the_licence_text_ships_with_the_package():
     assert licence.is_file()
     assert "Redistribution and use in source and binary forms" in \
         licence.read_text()
+
+
+def test_the_landing_page_introduces_the_project_from_the_readme():
+    """The landing page is the first thing a reader sees, and the README
+    already opens with the right words. Restating them by hand is how the
+    two drift - which they had, down to a reworded first sentence."""
+    assert "{include} ../README.md" in (DOCS / "index.md").read_text()
