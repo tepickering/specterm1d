@@ -4,8 +4,8 @@
 
 A terminal-based viewer for 1D spectra, with IRAF `splot`'s keybindings.
 
-Opens anything `specutils` can read — IRAF multispec, `tabular-fits`,
-`wcs1d-fits`, SDSS, HST/COS, HST/STIS, JWST, APOGEE and more — plus pypeit's
+Opens anything [`specutils`](https://specutils.readthedocs.io) can read — IRAF multispec, `tabular-fits`,
+`wcs1d-fits`, SDSS, HST/COS, HST/STIS, JWST, APOGEE and more — plus [pypeit](https://pypeit.readthedocs.io)'s
 `OneSpec` and `spec1d` products, including echelle files with their orders
 grouped by object.
 
