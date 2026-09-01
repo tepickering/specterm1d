@@ -65,7 +65,7 @@ class Chrome:
 #
 # CHROME_FULL's right margin is 0.975 rather than 0.99 because the latter
 # clipped the final x tick label, rendering 9000 as 900.
-CHROME_FULL = Chrome(8, None, 3.5, 3.5, (0.09, 0.975, 0.93, 0.12),
+CHROME_FULL = Chrome(9, None, 3.5, 3.5, (0.09, 0.975, 0.93, 0.12),
                      True, True, True, True)
 CHROME_SMALL = Chrome(5, 4, 1.5, 1.0, (0.13, 0.995, 0.90, 0.26),
                       True, True, False, False)
@@ -82,8 +82,15 @@ CHROME_BARE = Chrome(4, 3, 0.0, 0.0, (0.0, 1.0, 1.0, 0.0),
 
 # How tall a plot label should be next to the terminal's own text. A glyph
 # occupies roughly three quarters of a cell - the rest is line spacing - so
-# this lands the two at about the same visible height.
-LABEL_CELL_FRACTION = 0.75
+# matching the two exactly would mean 0.75. The labels sit a notch above
+# that: a rendered digit is antialiased into a handful of pixels where the
+# terminal's own is hinted, and reads smaller at the same nominal height.
+#
+# This and CHROME_FULL.fontsize move together. The dpi chosen below is
+# ``fraction * cell * 72 / fontsize``, so raising both by the same factor
+# leaves the dpi - and with it every tick length, pad and line width in
+# pixels - where it was, and grows only the type.
+LABEL_CELL_FRACTION = 0.84
 
 # The room each margin needs, in multiples of the label height: the y side
 # holds a few digits plus the axis label, the x side two stacked lines, and
@@ -94,7 +101,7 @@ LEFT_EMS, BOTTOM_EMS, RIGHT_EMS, TOP_EMS = 4.5, 3.0, 1.2, 1.8
 # wrong cell size cannot leave the axes with nothing to draw in.
 MARGIN_CAP = 0.33
 
-# The dpi a fixed 8 pt label was tuned against, and the range outside which a
+# The dpi a fixed 9 pt label was tuned against, and the range outside which a
 # reported cell size is not worth believing.
 BASE_DPI = 100
 MIN_DPI, MAX_DPI = 72, 600
