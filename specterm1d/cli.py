@@ -33,8 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
     # actually wants to see the set.
     parser.add_argument("--theme", metavar="NAME", choices=theme.names(),
                         help="colour theme: xgterm (default; dark under the "
-                             "text backend), or the colours of any "
-                             "matplotlib style")
+                             "text backend), or any valid matplotlib style")
     parser.add_argument("--format", help="force a loader instead of sniffing")
     parser.add_argument("--units", help="initial dispersion units, e.g. nm, um, GHz")
     parser.add_argument(
