@@ -37,7 +37,7 @@ Arrow keys move a crosshair, `?` pages the full keymap, `q` quits.
 | Flag | Effect |
 |------|--------|
 | `--renderer kitty\|iterm2\|sixel\|gui\|text` | force a backend instead of probing |
-| `--theme NAME` | colour theme: `xgterm` (default; `dark` under `text`), or a matplotlib style |
+| `--theme NAME` | colour theme: `xgterm` (default), `dark` (default under `text`), or a matplotlib style |
 | `--units nm` | start in other dispersion units (`um`, `GHz`, anything astropy knows) |
 | `--mouse` / `--no-mouse` | override click/drag positioning (on for inline graphics) |
 | `--format NAME` | force a loader instead of sniffing the file |
@@ -51,7 +51,8 @@ Arrow keys move a crosshair, `?` pages the full keymap, `q` quits.
 
 One matplotlib figure is rendered to an RGBA buffer, and five interchangeable
 backends put those pixels on screen. Axes, tick labels, error bands and fit
-overlays therefore look the same everywhere; only the fidelity changes.
+overlays therefore look the same everywhere; what changes is the fidelity,
+and - for the `text` backend alone - the palette it opens in.
 
 | Terminal | Backend | Notes |
 |----------|---------|-------|
@@ -125,7 +126,11 @@ an image it cannot pass on — `SIXEL IMAGE (134x44)` padded out with `+` until
 it fills the window — instead of a plot.
 
 `--renderer kitty` or `--renderer sixel` forces the issue where the probe is
-too cautious.
+too cautious. Naming a backend also stops the graphics probes being sent at
+all - nothing but the choice of renderer reads them - which keeps the screen
+clean on a terminal that prints an unrecognised query instead of swallowing
+it. Stock Terminal.app is one: it answers a kitty graphics probe with the
+probe.
 
 ### Two-window mode
 
@@ -250,6 +255,11 @@ sixel palette, which is derived from the active theme rather than fixed.
 | `cursor` | red | crosshair and markers |
 | `overlay` | yellow, coral, magenta | overlay arrays |
 
+`--dump` and `--cursor` keep xgterm whichever backend they borrow. What they
+write is a full matplotlib figure, so tying its palette to a renderer picked
+for needing no terminal would leave a dumped PNG disagreeing with the window
+showing the same data.
+
 `--theme` also accepts any name in `matplotlib.style.available` - `ggplot`,
 `dark_background`, `Solarize_Light2`, `tableau-colorblind10` and the rest.
 Misspell one and the error lists the full set. Only a style's **colours** are
@@ -259,6 +269,17 @@ would put a 12 pt label on an 86 px figure. The roles a stylesheet has no
 opinion about are derived from the ones it does - the error band is the line
 blended halfway into the plot background, and the mask takes the warmest
 colour in the style's property cycle.
+
+There is no per-role override on the command line. A script that wants one
+builds the theme itself - roles are ordinary dataclass fields:
+
+```python
+from dataclasses import replace
+
+from specterm1d import theme
+
+theme.use(replace(theme.XGTERM, name="mine", line="#ffff00"))
+```
 
 ## Not implemented yet
 
