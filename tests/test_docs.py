@@ -113,3 +113,37 @@ def test_the_landing_page_introduces_the_project_from_the_readme():
     already opens with the right words. Restating them by hand is how the
     two drift - which they had, down to a reworded first sentence."""
     assert "{include} ../README.md" in (DOCS / "index.md").read_text()
+
+
+# ---- screenshots ----------------------------------------------------
+#
+# They have to be absolute for PyPI and local for Sphinx, which docs/conf.py
+# reconciles by rewriting the prefix as the README is included. Nothing else
+# would notice the two drifting apart: the rewrite would quietly stop
+# matching, and every page would hotlink a URL that resolves only once the
+# branch carrying the image has been merged.
+
+_IMAGE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
+
+
+def image_url_prefix():
+    """The prefix docs/conf.py strips, read without executing conf.py."""
+    import ast
+
+    tree = ast.parse((DOCS / "conf.py").read_text())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+                getattr(t, "id", None) == "IMAGE_URL_PREFIX" for t in node.targets):
+            return ast.literal_eval(node.value)
+    raise AssertionError("docs/conf.py defines no IMAGE_URL_PREFIX")
+
+
+def test_every_screenshot_is_a_local_file_behind_an_absolute_url():
+    # Screenshots only. The CI badge is an image too, and belongs to a host
+    # that renders it - there is nothing local to point it at.
+    prefix = image_url_prefix()
+    urls = [u for u in _IMAGE.findall(README.read_text()) if "docs/images" in u]
+    assert urls, "no screenshots found; this guard would pass vacuously"
+    for url in urls:
+        assert url.startswith(prefix), url
+        assert (DOCS / url[len(prefix):]).is_file(), url

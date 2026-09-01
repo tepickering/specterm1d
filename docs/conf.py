@@ -21,3 +21,23 @@ exclude_patterns = ["_build"]
 
 html_theme = "furo"
 html_title = "specterm1d"
+
+
+# README.md is the PyPI long description as well as the source of most pages
+# here, and PyPI serves it detached from the repository - so its screenshots
+# have to be absolute URLs. Sphinx has the files sitting right there, though,
+# and a docs build should not depend on a URL that only resolves once the
+# branch carrying the images has been merged: a pull request preview would
+# show broken images every time one was added. Point them back at the local
+# copies as the README is read in.
+IMAGE_URL_PREFIX = (
+    "https://raw.githubusercontent.com/tepickering/specterm1d/main/docs/"
+)
+
+
+def _use_local_images(app, relative_path, parent_docname, content):
+    content[0] = content[0].replace(IMAGE_URL_PREFIX, "")
+
+
+def setup(app):
+    app.connect("include-read", _use_local_images)

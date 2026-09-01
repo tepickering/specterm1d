@@ -12,6 +12,14 @@ grouped by object.
 The point is to keep the `splot` muscle memory intact while drawing a real
 matplotlib figure in the terminal, rather than an ASCII approximation of one.
 
+![The specterm1d graphics window showing a BINOSPEC IFU extraction in xgterm
+colours: a cyan box on black, yellow tick numbers, a white spectrum, and a red
+crosshair](https://raw.githubusercontent.com/tepickering/specterm1d/main/docs/images/gui-xgterm.png)
+
+*A BINOSPEC IFU extraction in the graphics window. The crosshair is what you
+place measurements with; the live `x`/`y`/`pix` readout sits in the title bar,
+where your eye already is.*
+
 ## Install
 
 ```bash
@@ -229,6 +237,13 @@ these are the X11 primaries, chosen to stay legible on a CRT across a room.
 specterm1d --theme dark spec.fits        # blue on charcoal; the pre-1.0 look
 specterm1d --theme ggplot spec.fits      # or any matplotlib style name
 ```
+
+![The same spectrum under the bmh matplotlib style: a light grey panel with a
+dashed grid and a blue spectrum](https://raw.githubusercontent.com/tepickering/specterm1d/main/docs/images/gui-bmh.png)
+
+*The same extraction under `--theme bmh`. A matplotlib style brings its grid
+across as well as its colours - the dashed rules here, drawn under the
+spectrum.*
 
 The `text` backend is the exception: it defaults to `dark`. Its decoration is
 terminal text around a plot of 2x2 block glyphs, and xgterm's palette asks
