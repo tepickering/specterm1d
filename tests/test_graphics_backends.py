@@ -141,7 +141,11 @@ def test_a_tmux_frame_goes_by_path_not_by_base64(tmp_path):
 
 
 def test_the_file_route_is_one_escape_where_inline_would_be_many(tmp_path):
-    rgba = _rgba(400, 400, value=17)
+    # Noise, not a flat fill: a uniform image compresses to a single chunk on
+    # some zlib builds, which would make this pass for the wrong reason.
+    rng = np.random.default_rng(0)
+    rgba = np.dstack([rng.integers(0, 256, (400, 400, 3), dtype=np.uint8),
+                      np.full((400, 400, 1), 255, dtype=np.uint8)])
     rect = CellRect(row=0, col=0, rows=20, cols=40)
     inline = io.StringIO()
     KittyRenderer(inline, _tmux_caps(local=False)).draw(rgba, rect)
