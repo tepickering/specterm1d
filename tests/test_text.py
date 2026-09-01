@@ -1,12 +1,17 @@
-# tests/test_quadrant.py
+# tests/test_text.py
 import io
 import itertools
 
 import numpy as np
 
 from specterm1d.term.base import CellRect
-from specterm1d.term.halfblock import render_cells
-from specterm1d.term.quadrant import GLYPHS, QuadrantRenderer, cells_from_rgba
+from specterm1d.term.text import (
+    GLYPHS,
+    TextRenderer,
+    cells_from_rgba,
+    quantize_256,
+    render_cells,
+)
 
 
 def _cell(tl, tr, bl, br):
@@ -139,16 +144,46 @@ def test_the_indexed_colour_path_ignores_the_glyph_channel():
 
 
 def test_target_pixels_is_two_per_cell_in_both_directions():
-    renderer = QuadrantRenderer(out=io.StringIO())
+    renderer = TextRenderer(out=io.StringIO())
     assert renderer.target_pixels(rows=43, cols=116) == (232, 86)
 
 
-def test_target_pixels_doubles_the_columns_halfblock_would_get():
-    from specterm1d.term.halfblock import HalfblockRenderer
+def test_quantize_256_maps_black_and_white_to_cube_ends():
+    codes = quantize_256(np.array([[0, 0, 0], [255, 255, 255]], dtype=np.uint8))
+    assert codes[0] == 16
+    assert codes[1] == 231
 
-    coarse = HalfblockRenderer(out=io.StringIO()).target_pixels(43, 116)
-    fine = QuadrantRenderer(out=io.StringIO()).target_pixels(43, 116)
-    assert fine == (2 * coarse[0], coarse[1])
+
+def test_quantize_256_prefers_the_grey_ramp_for_neutral_colours():
+    # 128,128,128 is closer to a grey-ramp entry than to any 6x6x6 cube entry.
+    code = quantize_256(np.array([128, 128, 128], dtype=np.uint8))
+    assert 232 <= int(code) <= 255
+
+
+def test_quantize_256_preserves_input_shape():
+    codes = quantize_256(np.zeros((4, 5, 2, 3), dtype=np.uint8))
+    assert codes.shape == (4, 5, 2)
+
+
+def test_render_cells_positions_with_one_based_coordinates():
+    out = render_cells(np.zeros((1, 1, 7), dtype=np.uint8), origin=(5, 9))
+    assert "\x1b[5;9H" in out
+
+
+def test_frame_diffing_shrinks_the_payload_by_orders_of_magnitude():
+    prev = np.zeros((50, 200, 7), dtype=np.uint8)
+    cells = prev.copy()
+    cells[10, 10] = [255, 255, 255, 0, 0, 0, 3]
+    full = len(render_cells(cells))
+    diffed = len(render_cells(cells, prev=prev))
+    assert diffed < full / 100
+
+
+def test_shape_change_forces_a_full_redraw():
+    prev = np.zeros((4, 8, 7), dtype=np.uint8)
+    cells = np.zeros((4, 9, 7), dtype=np.uint8)
+    cells[..., 6] = 3
+    assert render_cells(cells, prev=prev).count("▀") == 36
 
 
 def _checkerboard(rows_px, cols_px):
@@ -160,14 +195,14 @@ def _checkerboard(rows_px, cols_px):
 
 def test_draw_crops_to_the_cell_rect():
     stream = io.StringIO()
-    QuadrantRenderer(out=stream).draw(_checkerboard(20, 30),
+    TextRenderer(out=stream).draw(_checkerboard(20, 30),
                                       CellRect(row=0, col=0, rows=4, cols=5))
     assert stream.getvalue().count("▘") == 20
 
 
 def test_a_second_identical_draw_emits_nothing():
     stream = io.StringIO()
-    renderer = QuadrantRenderer(out=stream)
+    renderer = TextRenderer(out=stream)
     rect = CellRect(row=0, col=0, rows=10, cols=15)
     renderer.draw(_checkerboard(20, 30), rect)
     stream.truncate(0)
@@ -178,7 +213,7 @@ def test_a_second_identical_draw_emits_nothing():
 
 def test_teardown_forces_the_next_draw_to_be_full():
     stream = io.StringIO()
-    renderer = QuadrantRenderer(out=stream)
+    renderer = TextRenderer(out=stream)
     rect = CellRect(row=0, col=0, rows=10, cols=15)
     renderer.draw(_checkerboard(20, 30), rect)
     renderer.teardown()
@@ -190,4 +225,4 @@ def test_teardown_forces_the_next_draw_to_be_full():
 
 def test_the_renderer_asks_for_text_chrome():
     # The pixel budget is still far too small for matplotlib's own labels.
-    assert QuadrantRenderer(out=io.StringIO()).text_chrome is True
+    assert TextRenderer(out=io.StringIO()).text_chrome is True

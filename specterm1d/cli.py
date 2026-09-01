@@ -14,7 +14,7 @@ from specterm1d.plot import SpectrumPlot
 from specterm1d.session import Session
 from specterm1d.term import caps as caps_mod
 
-RENDERERS = ("kitty", "iterm2", "sixel", "gui", "quadrant", "halfblock")
+RENDERERS = ("kitty", "iterm2", "sixel", "gui", "text")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -61,7 +61,7 @@ def attach_or_fall_back(renderer, plot, caps, out):
     through.
     """
     from specterm1d.term.gui import GuiUnavailable
-    from specterm1d.term.quadrant import QuadrantRenderer
+    from specterm1d.term.text import TextRenderer
 
     attach = getattr(renderer, "attach", None)
     if attach is None:
@@ -69,9 +69,9 @@ def attach_or_fall_back(renderer, plot, caps, out):
     try:
         attach(plot)
     except GuiUnavailable as exc:
-        print(f"graphics window unavailable ({exc}); using quadrant blocks",
+        print(f"graphics window unavailable ({exc}); drawing in the terminal",
               file=sys.stderr)
-        return QuadrantRenderer(out=out, truecolor=caps.truecolor)
+        return TextRenderer(out=out, truecolor=caps.truecolor)
     return renderer
 
 
@@ -92,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
     # branches before the tty check.
     if args.dump or args.cursor:
         from specterm1d.cursorscript import parse_script, run_script
-        from specterm1d.term.halfblock import HalfblockRenderer
+        from specterm1d.term.text import TextRenderer
 
         width, height = (int(v) for v in args.dump_size.lower().split("x"))
         caps = caps_mod.TerminalCaps(
@@ -100,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
             rows=height // 2, cols=width, pixel_width=width,
             pixel_height=height, is_tty=False,
         )
-        session = Session(collection, HalfblockRenderer(out=io.StringIO()),
+        session = Session(collection, TextRenderer(out=io.StringIO()),
                           SpectrumPlot(width, height), out=io.StringIO(),
                           caps=caps)
         session.debug = args.debug

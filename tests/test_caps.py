@@ -172,12 +172,12 @@ def test_zero_pixel_size_is_reported_as_unknown():
     assert c.pixel_width is None and c.pixel_height is None
 
 
-def test_choose_renderer_falls_back_to_block_glyphs():
+def test_choose_renderer_falls_back_to_the_text_backend():
     import io
     c = TerminalCaps(kitty=False, iterm2=False, sixel=False, truecolor=True,
                      rows=50, cols=200, pixel_width=None, pixel_height=None,
                      is_tty=True)
-    assert choose_renderer(c, out=io.StringIO()).name == "quadrant"
+    assert choose_renderer(c, out=io.StringIO()).name == "text"
 
 
 def test_choose_renderer_honours_an_explicit_override():
@@ -185,8 +185,8 @@ def test_choose_renderer_honours_an_explicit_override():
     c = TerminalCaps(kitty=True, iterm2=False, sixel=False, truecolor=True,
                      rows=50, cols=200, pixel_width=1600, pixel_height=850,
                      is_tty=True)
-    assert choose_renderer(c, override="halfblock",
-                           out=io.StringIO()).name == "halfblock"
+    assert choose_renderer(c, override="text",
+                           out=io.StringIO()).name == "text"
 
 
 def test_unknown_override_name_is_rejected():
@@ -198,7 +198,7 @@ def test_unknown_override_name_is_rejected():
         choose_renderer(c, override="nosuch", out=io.StringIO())
 
 
-def test_the_block_backend_gets_its_truecolor_flag_from_caps():
+def test_the_text_backend_gets_its_truecolor_flag_from_caps():
     import io
     c = TerminalCaps(kitty=False, iterm2=False, sixel=False, truecolor=False,
                      rows=50, cols=200, pixel_width=None, pixel_height=None,
@@ -206,26 +206,12 @@ def test_the_block_backend_gets_its_truecolor_flag_from_caps():
     assert choose_renderer(c, out=io.StringIO()).truecolor is False
 
 
-def test_preference_puts_the_window_above_the_blocks_and_below_inline():
-    from specterm1d.term.caps import PREFERENCE
-    assert PREFERENCE == ("kitty", "iterm2", "sixel", "gui", "quadrant",
-                          "halfblock")
-
-
-def test_halfblock_is_reachable_only_by_asking_for_it():
-    # Quadrants come first, so probing never lands on halfblock; it exists for
-    # a font that lacks U+2596..U+259F.
-    import io
-
+def test_preference_puts_the_window_above_the_text_backend():
     from specterm1d.term.caps import ALWAYS_AVAILABLE, PREFERENCE
 
-    assert ALWAYS_AVAILABLE == ("quadrant", "halfblock")
-    assert PREFERENCE.index("quadrant") < PREFERENCE.index("halfblock")
-    c = TerminalCaps(kitty=False, iterm2=False, sixel=False, truecolor=True,
-                     rows=50, cols=200, pixel_width=None, pixel_height=None,
-                     is_tty=True)
-    assert choose_renderer(c, override="halfblock",
-                           out=io.StringIO()).name == "halfblock"
+    assert PREFERENCE == ("kitty", "iterm2", "sixel", "gui", "text")
+    # Last, and needing no capability, so the search always terminates.
+    assert PREFERENCE[-1] == ALWAYS_AVAILABLE
 
 
 def test_a_terminal_with_no_inline_protocol_gets_a_window():
@@ -238,14 +224,14 @@ def test_a_terminal_with_no_inline_protocol_gets_a_window():
     assert choose_renderer(caps, out=None).name == "gui"
 
 
-def test_no_display_falls_all_the_way_through_to_the_block_glyphs():
+def test_no_display_falls_all_the_way_through_to_the_text_backend():
     import specterm1d.term  # noqa: F401
     from specterm1d.term.caps import TerminalCaps, choose_renderer
 
     caps = TerminalCaps(kitty=False, iterm2=False, sixel=False, truecolor=True,
                         rows=43, cols=116, pixel_width=None, pixel_height=None,
                         is_tty=True, gui=False)
-    assert choose_renderer(caps, out=None).name == "quadrant"
+    assert choose_renderer(caps, out=None).name == "text"
 
 
 def test_inline_graphics_still_beat_the_window():
