@@ -10,12 +10,15 @@ from specterm1d.term.base import CellRect
 from specterm1d.term.iterm2 import ITerm2Renderer
 from specterm1d.term.kitty import KittyRenderer, kitty_chunks, png_bytes
 from specterm1d.term.sixel import (
-    PALETTE,
     SixelRenderer,
     build_lut,
     encode_sixel,
+    palette_for,
     quantize_palette,
 )
+from specterm1d.theme import DARK
+
+PALETTE = palette_for(DARK)
 
 
 def _rgba(h=8, w=8, value=64):

@@ -538,3 +538,77 @@ def test_detect_probes_the_terminal_when_given_no_query_function(monkeypatch):
 
     assert "\x1b[?1016$p" in asked
     assert (c.pixel_mouse, c.sixel) == (True, True)
+
+
+# ---- probes that a terminal might echo instead of swallowing --------
+
+def test_a_named_renderer_skips_the_graphics_probes():
+    """Nothing but choose_renderer reads these, and an echoed probe is ugly."""
+    asked = []
+
+    def record(request, *args, **kwargs):
+        asked.append(request)
+        return None
+
+    caps = caps_mod.detect(env={}, is_tty=True, size_fn=fake_size(),
+                           query_fn=record, tmux_fn=fake_tmux({}),
+                           probe_graphics=False)
+    assert caps.kitty is False and caps.sixel is False
+    assert caps_mod.KITTY_QUERY not in asked
+    assert caps_mod.DA_QUERY not in asked
+
+
+def test_the_mouse_probe_survives_a_named_renderer():
+    """Pointer resolution matters whichever backend draws the plot."""
+    asked = []
+
+    def record(request, *args, **kwargs):
+        asked.append(request)
+        return "\x1b[?1016;1$y"
+
+    caps_mod.detect(env={}, is_tty=True, size_fn=fake_size(), query_fn=record,
+                    tmux_fn=fake_tmux({}), probe_graphics=False)
+    assert caps_mod.PIXEL_MOUSE_QUERY in asked
+
+
+def test_probing_wipes_whatever_the_terminal_echoed_back():
+    """Terminal.app answers a kitty graphics probe by printing the probe.
+
+    The payload would otherwise sit in the scrollback: probing happens before
+    the alternate screen is entered, so no later redraw covers it.
+
+    The master end has to be drained while the query runs - query() restores
+    the terminal with TCSADRAIN, which waits for pending output to be read,
+    and a pty nobody is reading never drains.
+    """
+    import os
+    import pty
+    import threading
+
+    master, slave = pty.openpty()
+    chunks: list[bytes] = []
+
+    def drain():
+        while True:
+            try:
+                data = os.read(master, 4096)
+            except OSError:      # the slave closed: EIO on macOS, EOF on Linux
+                break
+            if not data:
+                break
+            chunks.append(data)
+
+    reader = threading.Thread(target=drain, daemon=True)
+    reader.start()
+    try:
+        caps_mod.query("\x1b_Gtest\x1b\\", timeout=0.01,
+                       fd_in=slave, fd_out=slave)
+    finally:
+        os.close(slave)
+        reader.join(timeout=5)
+        os.close(master)
+
+    written = b"".join(chunks)
+    assert written.startswith(caps_mod.CURSOR_SAVE)
+    assert written.endswith(caps_mod.CURSOR_RESTORE)
+    assert b"\x1b_Gtest" in written

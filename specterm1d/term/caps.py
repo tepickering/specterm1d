@@ -6,6 +6,7 @@ query and size functions so it is testable without a pty.
 """
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import os
 import re
@@ -117,6 +118,16 @@ def window_size(fd: int | None = None) -> tuple[int, int, int | None, int | None
     return (rows or 24, cols or 80, xp or None, yp or None)
 
 
+# A terminal that does not understand a query is supposed to swallow it.
+# Some print it instead - stock Terminal.app answers a kitty graphics probe
+# by echoing the probe - and the payload lands in the user's scrollback,
+# before the alternate screen is entered and so beyond any later redraw.
+# Saving the cursor first means whatever leaked can be wiped afterwards
+# without disturbing anything above it.
+CURSOR_SAVE = b"\x1b7"
+CURSOR_RESTORE = b"\x1b8\x1b[J"
+
+
 def query(request: str, timeout: float = 0.1, fd_in: int | None = None,
           fd_out: int | None = None) -> str | None:
     """Write a query and read whatever comes back before the deadline."""
@@ -128,7 +139,7 @@ def query(request: str, timeout: float = 0.1, fd_in: int | None = None,
     saved = termios.tcgetattr(fd_in)
     try:
         tty.setraw(fd_in)
-        os.write(fd_out, request.encode())
+        os.write(fd_out, CURSOR_SAVE + request.encode())
         buf = b""
         deadline = time.monotonic() + timeout
         while True:
@@ -148,7 +159,12 @@ def query(request: str, timeout: float = 0.1, fd_in: int | None = None,
     except Exception:
         return None
     finally:
+        # Modes first, erase second: tcsetattr drains pending output before it
+        # returns, and giving back the user's terminal must not wait on bytes
+        # we only sent to tidy the screen.
         termios.tcsetattr(fd_in, termios.TCSADRAIN, saved)
+        with contextlib.suppress(Exception):
+            os.write(fd_out, CURSOR_RESTORE)
     return buf.decode("latin-1") if buf else None
 
 
@@ -205,7 +221,8 @@ def _decrqm_supported(response: str | None, mode: int) -> bool:
 
 def detect(env: dict | None = None, query_fn: Callable | None = None,
            size_fn: Callable | None = None, is_tty: bool = True,
-           tmux_fn: Callable | None = None) -> TerminalCaps:
+           tmux_fn: Callable | None = None,
+           probe_graphics: bool = True) -> TerminalCaps:
     # Local: term/__init__ imports caps before gui, and probing is not on any
     # hot path.
     from specterm1d.term import gui as gui_backend
@@ -231,38 +248,45 @@ def detect(env: dict | None = None, query_fn: Callable | None = None,
     truecolor = env.get("COLORTERM", "").lower() in ("truecolor", "24bit")
     in_tmux = bool(env.get("TMUX"))
 
-    kitty = False
-    if in_tmux:
-        # Probe through the same wrapper the drawing will use, so a reply
-        # proves both that the terminal outside speaks the protocol and that
-        # tmux is letting sequences through. Silence is not a no, though:
-        # tmux need not hand the terminal's reply back to the pane. So fall
-        # back on asking tmux who its client is - and whether passthrough is
-        # on at all, since without it the wrapped sequences go nowhere and
-        # the pane would just stay black.
-        response = query_fn(tmux_passthrough(KITTY_QUERY)) if query_fn else None
-        kitty = bool(response and "OK" in response)
-        if not kitty:
-            allowed = tmux_fn(*TMUX_PASSTHROUGH_OPTION) in ("on", "all")
-            kitty = allowed and tmux_fn(*TMUX_CLIENT_TERM) in _KITTY_CLIENT_TERMS
-    else:
-        response = query_fn(KITTY_QUERY) if query_fn else None
-        kitty = bool(response and "OK" in response)
-        if not kitty:
-            kitty = (
-                env.get("TERM") in _KITTY_TERMS
-                or env.get("TERM_PROGRAM") in _KITTY_PROGRAMS
-                or bool(env.get("KITTY_WINDOW_ID"))
-            )
+    # Nothing but choose_renderer reads kitty and sixel, so when the caller has
+    # already named a renderer these decide nothing. Skipping them is not only
+    # thrift: a terminal that prints an unknown query instead of swallowing it
+    # leaves the payload on screen, and there is no reason to risk that to
+    # answer a question nobody asked. The mouse probe below is a plain CSI and
+    # stays either way - pointer resolution matters whatever draws the plot.
+    kitty = sixel = False
+    if probe_graphics:
+        if in_tmux:
+            # Probe through the same wrapper the drawing will use, so a reply
+            # proves both that the terminal outside speaks the protocol and
+            # that tmux is letting sequences through. Silence is not a no,
+            # though: tmux need not hand the terminal's reply back to the
+            # pane. So fall back on asking tmux who its client is - and
+            # whether passthrough is on at all, since without it the wrapped
+            # sequences go nowhere and the pane would just stay black.
+            response = query_fn(tmux_passthrough(KITTY_QUERY)) if query_fn else None
+            kitty = bool(response and "OK" in response)
+            if not kitty:
+                allowed = tmux_fn(*TMUX_PASSTHROUGH_OPTION) in ("on", "all")
+                kitty = allowed and tmux_fn(*TMUX_CLIENT_TERM) in _KITTY_CLIENT_TERMS
+        else:
+            response = query_fn(KITTY_QUERY) if query_fn else None
+            kitty = bool(response and "OK" in response)
+            if not kitty:
+                kitty = (
+                    env.get("TERM") in _KITTY_TERMS
+                    or env.get("TERM_PROGRAM") in _KITTY_PROGRAMS
+                    or bool(env.get("KITTY_WINDOW_ID"))
+                )
+
+        sixel = _da_has_sixel(query_fn(DA_QUERY) if query_fn else None)
+        if sixel and in_tmux:
+            # The attribute came from tmux, so check it against what tmux says
+            # its client can display.
+            sixel = "sixel" in tmux_fn(*TMUX_CLIENT_FEATURES).split(",")
 
     iterm2 = (env.get("TERM_PROGRAM") == "iTerm.app"
               or env.get("LC_TERMINAL") == "iTerm2")
-
-    sixel = _da_has_sixel(query_fn(DA_QUERY) if query_fn else None)
-    if sixel and in_tmux:
-        # The attribute came from tmux, so check it against what tmux says its
-        # client can display.
-        sixel = "sixel" in tmux_fn(*TMUX_CLIENT_FEATURES).split(",")
 
     # Pixel mouse positions are a property of the terminal, not of whichever
     # graphics protocol it also happens to speak, so ask about the mode rather

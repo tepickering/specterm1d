@@ -13,16 +13,8 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.ticker import MaxNLocator
 
+from specterm1d import theme
 from specterm1d.spec import Spec
-
-# A restrained palette: few enough colours that the sixel backend can quantize
-# to a fixed 16-entry table without visible loss.
-COLOR_BG = "#101418"
-COLOR_FG = "#c8d2dc"
-COLOR_LINE = "#4aa3ff"
-COLOR_SIGMA = "#2f5d8a"
-COLOR_MASK = "#c8503c"
-COLOR_OVERLAY = ("#e0a030", "#50b070", "#a070d0")
 
 
 @dataclass(frozen=True)
@@ -73,7 +65,7 @@ class Chrome:
 #
 # CHROME_FULL's right margin is 0.975 rather than 0.99 because the latter
 # clipped the final x tick label, rendering 9000 as 900.
-CHROME_FULL = Chrome(8, None, 3.5, 3.5, (0.09, 0.975, 0.93, 0.12),
+CHROME_FULL = Chrome(9, None, 3.5, 3.5, (0.09, 0.975, 0.93, 0.12),
                      True, True, True, True)
 CHROME_SMALL = Chrome(5, 4, 1.5, 1.0, (0.13, 0.995, 0.90, 0.26),
                       True, True, False, False)
@@ -90,8 +82,15 @@ CHROME_BARE = Chrome(4, 3, 0.0, 0.0, (0.0, 1.0, 1.0, 0.0),
 
 # How tall a plot label should be next to the terminal's own text. A glyph
 # occupies roughly three quarters of a cell - the rest is line spacing - so
-# this lands the two at about the same visible height.
-LABEL_CELL_FRACTION = 0.75
+# matching the two exactly would mean 0.75. The labels sit a notch above
+# that: a rendered digit is antialiased into a handful of pixels where the
+# terminal's own is hinted, and reads smaller at the same nominal height.
+#
+# This and CHROME_FULL.fontsize move together. The dpi chosen below is
+# ``fraction * cell * 72 / fontsize``, so raising both by the same factor
+# leaves the dpi - and with it every tick length, pad and line width in
+# pixels - where it was, and grows only the type.
+LABEL_CELL_FRACTION = 0.84
 
 # The room each margin needs, in multiples of the label height: the y side
 # holds a few digits plus the axis label, the x side two stacked lines, and
@@ -102,7 +101,7 @@ LEFT_EMS, BOTTOM_EMS, RIGHT_EMS, TOP_EMS = 4.5, 3.0, 1.2, 1.8
 # wrong cell size cannot leave the axes with nothing to draw in.
 MARGIN_CAP = 0.33
 
-# The dpi a fixed 8 pt label was tuned against, and the range outside which a
+# The dpi a fixed 9 pt label was tuned against, and the range outside which a
 # reported cell size is not worth believing.
 BASE_DPI = 100
 MIN_DPI, MAX_DPI = 72, 600
@@ -257,7 +256,7 @@ class SpectrumPlot:
         self._cell_px: float | None = None
         self._bare = bare
         self.fig = Figure(figsize=(width_px / dpi, height_px / dpi), dpi=dpi,
-                          facecolor=COLOR_BG)
+                          facecolor=theme.active().figure)
         FigureCanvasAgg(self.fig)
         self.ax = self.fig.add_subplot(111)
         self._style_axes(self.chrome())
@@ -316,11 +315,28 @@ class SpectrumPlot:
 
     def _style_axes(self, chrome: Chrome) -> None:
         ax = self.ax
-        ax.set_facecolor(COLOR_BG)
+        palette = theme.active()
+        # Restated every frame rather than at construction, so switching the
+        # theme under a live figure repaints it.
+        self.fig.set_facecolor(palette.figure)
+        ax.set_facecolor(palette.plot)
         for spine in ax.spines.values():
             spine.set_visible(chrome.frame)
-            spine.set_color(COLOR_FG)
+            spine.set_color(palette.spine)
             spine.set_linewidth(0.8 if chrome.minor_ticks else 0.5)
+        # The grid goes with the frame. In bare mode the terminal draws the
+        # tick marks from its own tick values, which need not be the ones
+        # matplotlib's locator picked, and a grid ruled somewhere else than
+        # the ticks it belongs to reads as a fault rather than a style.
+        if chrome.frame and palette.grid:
+            ax.set_axisbelow(palette.grid_below)
+            # Kwargs alongside a false first argument turn the grid on with a
+            # warning, so the off case has to be a separate call.
+            ax.grid(True, color=palette.grid_color, linestyle=palette.grid_style,
+                    linewidth=palette.grid_width, alpha=palette.grid_alpha)
+        else:
+            ax.grid(False)
+
         if not chrome.frame:
             ax.tick_params(which="both", left=False, right=False, top=False,
                            bottom=False, labelleft=False, labelbottom=False)
@@ -329,11 +345,14 @@ class SpectrumPlot:
             # data cursor mapping keeps working unchanged.
             self.fig.subplots_adjust(left=0.0, right=1.0, top=1.0, bottom=0.0)
             return
-        ax.tick_params(colors=COLOR_FG, labelsize=chrome.fontsize, which="both",
+        # color and labelcolor split apart: xgterm draws cyan tick marks
+        # against yellow numbers, which one ``colors=`` cannot express.
+        ax.tick_params(color=palette.spine, labelcolor=palette.tick_label,
+                       labelsize=chrome.fontsize, which="both",
                        length=chrome.tick_len, width=0.5, pad=chrome.pad)
-        ax.xaxis.label.set_color(COLOR_FG)
-        ax.yaxis.label.set_color(COLOR_FG)
-        ax.title.set_color(COLOR_FG)
+        ax.xaxis.label.set_color(palette.text)
+        ax.yaxis.label.set_color(palette.text)
+        ax.title.set_color(palette.text)
         if chrome.minor_ticks:
             ax.minorticks_on()
         if chrome.ticks is not None:
@@ -403,6 +422,7 @@ class SpectrumPlot:
         ax.clear()
         chrome = self.chrome()
         self._style_axes(chrome)
+        palette = theme.active()
 
         spec = req.spec
         ncols = int(self.fig.get_size_inches()[0] * self.dpi)
@@ -410,46 +430,46 @@ class SpectrumPlot:
         xd, yd = decimate(spec.wave, y, req.xlim[0], req.xlim[1], ncols)
 
         drawstyle = "steps-mid" if req.histogram else "default"
-        ax.plot(xd, yd, lw=0.8, color=COLOR_LINE, drawstyle=drawstyle)
+        ax.plot(xd, yd, lw=0.8, color=palette.line, drawstyle=drawstyle)
 
         if req.show_sigma and spec.sigma is not None:
             sig = spec.sigma.astype(float, copy=True)
             sig[~np.isfinite(sig)] = np.nan
             _, lo = decimate(spec.wave, y - sig, req.xlim[0], req.xlim[1], ncols)
             _, hi = decimate(spec.wave, y + sig, req.xlim[0], req.xlim[1], ncols)
-            ax.fill_between(xd, lo, hi, color=COLOR_SIGMA, alpha=0.45,
+            ax.fill_between(xd, lo, hi, color=palette.sigma, alpha=0.45,
                             linewidth=0)
 
         if req.show_mask:
             bad = ~spec.good
             if bad.any():
                 ax.vlines(spec.wave[bad], req.ylim[0], req.ylim[1],
-                          color=COLOR_MASK, alpha=0.25, linewidth=0.5)
+                          color=palette.mask, alpha=0.25, linewidth=0.5)
 
         for i, name in enumerate(req.overlays):
             arr = spec.overlays.get(name)
             if arr is None:
                 continue
             _, od = decimate(spec.wave, arr, req.xlim[0], req.xlim[1], ncols)
-            ax.plot(xd, od, lw=0.7, color=COLOR_OVERLAY[i % len(COLOR_OVERLAY)],
-                    label=name)
+            ax.plot(xd, od, lw=0.7,
+                    color=palette.overlay[i % len(palette.overlay)], label=name)
         # In bare mode the legend would be the same unreadable smear as the
         # tick labels; the terminal chrome paints it on the title row instead.
         if chrome.frame and req.overlays and ax.get_legend_handles_labels()[0]:
             legend = ax.legend(loc="upper right", fontsize=chrome.fontsize,
                                 framealpha=0.3)
             for text in legend.get_texts():
-                text.set_color(COLOR_FG)
+                text.set_color(palette.text)
 
         for fx, fy in req.fits:
-            ax.plot(fx, fy, lw=1.0, color=COLOR_MASK)
+            ax.plot(fx, fy, lw=1.0, color=palette.fit)
 
         for xm in req.markers:
-            ax.axvline(xm, color=COLOR_FG, lw=0.7, alpha=0.6)
+            ax.axvline(xm, color=palette.cursor, lw=0.7, alpha=0.6)
         if req.cursor is not None:
-            ax.axvline(req.cursor[0], color=COLOR_FG, lw=0.7, alpha=0.6)
+            ax.axvline(req.cursor[0], color=palette.cursor, lw=0.7, alpha=0.6)
             if req.cursor_crosshair and req.cursor[1] is not None:
-                ax.axhline(req.cursor[1], color=COLOR_FG, lw=0.7, alpha=0.6)
+                ax.axhline(req.cursor[1], color=palette.cursor, lw=0.7, alpha=0.6)
 
         ax.set_xlim(*req.xlim)
         ax.set_ylim(*req.ylim)

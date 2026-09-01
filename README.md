@@ -37,6 +37,7 @@ Arrow keys move a crosshair, `?` pages the full keymap, `q` quits.
 | Flag | Effect |
 |------|--------|
 | `--renderer kitty\|iterm2\|sixel\|gui\|text` | force a backend instead of probing |
+| `--theme NAME` | colour theme: `xgterm` (default), `dark` (default under `text`), or a matplotlib style |
 | `--units nm` | start in other dispersion units (`um`, `GHz`, anything astropy knows) |
 | `--mouse` / `--no-mouse` | override click/drag positioning (on for inline graphics) |
 | `--format NAME` | force a loader instead of sniffing the file |
@@ -50,7 +51,8 @@ Arrow keys move a crosshair, `?` pages the full keymap, `q` quits.
 
 One matplotlib figure is rendered to an RGBA buffer, and five interchangeable
 backends put those pixels on screen. Axes, tick labels, error bands and fit
-overlays therefore look the same everywhere; only the fidelity changes.
+overlays therefore look the same everywhere; what changes is the fidelity,
+and - for the `text` backend alone - the palette it opens in.
 
 | Terminal | Backend | Notes |
 |----------|---------|-------|
@@ -124,7 +126,11 @@ an image it cannot pass on — `SIXEL IMAGE (134x44)` padded out with `+` until
 it fills the window — instead of a plot.
 
 `--renderer kitty` or `--renderer sixel` forces the issue where the probe is
-too cautious.
+too cautious. Naming a backend also stops the graphics probes being sent at
+all - nothing but the choice of renderer reads them - which keeps the screen
+clean on a terminal that prints an unrecognised query instead of swallowing
+it. Stock Terminal.app is one: it answers a kitty graphics probe with the
+probe.
 
 ### Two-window mode
 
@@ -211,6 +217,74 @@ Multi-point commands are explicit: press the command key to arm it, then mark
 each point with `<space>`. The crosshair's **y** matters — `e`, `k` and `h`
 take their continuum from the cursor's y at each marked point, which is what
 IRAF's `sumflux.x` does with `eqy1`/`eqy2`.
+
+## Colours
+
+The default palette is xgterm's, because that is the window splot was read in
+for thirty years: a cyan box on black, yellow numbers, green captions, and a
+white spectrum on a DarkSlateGray surround. It is high contrast by design -
+these are the X11 primaries, chosen to stay legible on a CRT across a room.
+
+```bash
+specterm1d --theme dark spec.fits        # blue on charcoal; the pre-1.0 look
+specterm1d --theme ggplot spec.fits      # or any matplotlib style name
+```
+
+The `text` backend is the exception: it defaults to `dark`. Its decoration is
+terminal text around a plot of 2x2 block glyphs, and xgterm's palette asks
+more of that than it can give - three inks around the box, and a slate
+surround meeting a black plot on a seam the quantizer has to resolve. `dark`
+is one foreground on one ground, which is the same simplification the backend
+already is. `--theme xgterm` overrides it, as an explicit `--theme` overrides
+any default.
+
+A theme names colours by *role*, and every backend honours all of them: the
+matplotlib figure, the terminal-drawn chrome of the `text` backend, and the
+sixel palette, which is derived from the active theme rather than fixed.
+
+| Role | xgterm | What it draws |
+|------|--------|---------------|
+| `figure` | DarkSlateGray | around the box - and the ground the text chrome sits on |
+| `plot` | black | inside the box |
+| `spine` | cyan | spines, tick marks, the `│ └ ┬ ┤` glyphs |
+| `tick_label` | yellow | the numbers on the axes |
+| `text` | green | title, axis labels, legend |
+| `line` | white | the spectrum |
+| `sigma` | light blue | the error band |
+| `mask` / `fit` | red / magenta | masked columns, fitted profiles |
+| `cursor` | red | crosshair and markers |
+| `overlay` | yellow, coral, magenta | overlay arrays |
+| `grid` | none | rules across the plot, where a matplotlib style asks for them |
+
+`--dump` and `--cursor` keep xgterm whichever backend they borrow. What they
+write is a full matplotlib figure, so tying its palette to a renderer picked
+for needing no terminal would leave a dumped PNG disagreeing with the window
+showing the same data.
+
+`--theme` also accepts any name in `matplotlib.style.available` - `ggplot`,
+`dark_background`, `Solarize_Light2`, `tableau-colorblind10` and the rest.
+Misspell one and the error lists the full set. A style's **colours and its
+grid** come across; its fonts, line widths and padding do not, because those
+are tuned here against the terminal's pixel budget, where a stylesheet written
+for a page would put a 12 pt label on an 86 px figure. The grid keeps the
+style's own colour, dashes, weight and stacking order - `ggplot` without its
+white rules is not `ggplot` - with one exception: under the `text` backend the
+terminal draws the tick marks from tick values of its own, and a grid ruled
+anywhere but on them would read as a fault rather than a style. The roles a
+stylesheet has no opinion about are derived from the ones it does - the error
+band is the line blended halfway into the plot background, and the mask takes
+the warmest colour in the style's property cycle.
+
+There is no per-role override on the command line. A script that wants one
+builds the theme itself - roles are ordinary dataclass fields:
+
+```python
+from dataclasses import replace
+
+from specterm1d import theme
+
+theme.use(replace(theme.XGTERM, name="mine", line="#ffff00"))
+```
 
 ## Not implemented yet
 
