@@ -19,6 +19,24 @@ def fake_size(rows=50, cols=200, xp=1600, yp=850):
     return lambda: (rows, cols, xp, yp)
 
 
+def sixel_da():
+    """A Primary Device Attributes reply advertising sixel."""
+    return fake_query({"\x1b[c": "\x1b[?1;2;4c"})
+
+
+def fake_tmux(answers):
+    """tmux_fn stub: keyed on the last argument of the tmux command.
+
+    Every test that sets TMUX must pass one of these: without it detect()
+    shells out to whatever tmux server is really running.
+    """
+    return lambda *args: answers.get(args[-1], "")
+
+
+TMUX = "/tmp/tmux-501/default,1,0"
+NO_SIXEL = "bpaste,ccolour,clipboard,cstyle,focus,RGB,title"
+
+
 def test_non_tty_reports_no_capabilities():
     c = detect(env={}, is_tty=False)
     assert c.is_tty is False
@@ -98,17 +116,161 @@ def test_pixel_mouse_needs_the_terminal_to_report_pixels():
 
 
 def test_pixel_mouse_stays_off_under_tmux():
-    c = detect(env={"TMUX": "/tmp/tmux-501/default,1,0"}, is_tty=True,
-               size_fn=fake_size(), query_fn=decrqm("2"))
+    # tmux has no SGR-Pixels: asked about mode 1016 it answers Ps=0, "never
+    # heard of it", and the mouse reports it forwards are in cells.
+    c = detect(env={"TMUX": TMUX}, is_tty=True, size_fn=fake_size(),
+               query_fn=decrqm("2"), tmux_fn=fake_tmux({}))
     assert c.pixel_mouse is False
 
 
-def test_kitty_is_not_probed_under_tmux():
-    # kitty graphics passthrough through tmux is unreliable.
-    c = detect(env={"TMUX": "/tmp/tmux-501/default,1,0", "TERM": "xterm-kitty"},
-               is_tty=True, size_fn=fake_size(),
-               query_fn=fake_query({"\x1b_G": "\x1b_Gi=31;OK\x1b\\"}))
+def test_sixel_is_trusted_outside_tmux():
+    c = detect(env={}, is_tty=True, size_fn=fake_size(), query_fn=sixel_da())
+    assert c.sixel is True
+
+
+def test_tmuxs_own_sixel_attribute_is_not_trusted():
+    # tmux answers attribute 4 whenever it was built --enable-sixel, with no
+    # client attached at all, so inside tmux the reply says nothing about
+    # whether an image would reach the screen. It does not here: tmux draws
+    # what it cannot pass on as a placeholder padded out with plus signs.
+    c = detect(env={"TMUX": TMUX}, is_tty=True, size_fn=fake_size(),
+               query_fn=sixel_da(),
+               tmux_fn=fake_tmux({"#{client_termfeatures}": NO_SIXEL}))
+    assert c.sixel is False
+
+
+def test_sixel_survives_tmux_when_the_client_terminal_has_it():
+    c = detect(env={"TMUX": TMUX}, is_tty=True, size_fn=fake_size(),
+               query_fn=sixel_da(),
+               tmux_fn=fake_tmux({"#{client_termfeatures}":
+                                  "bpaste,focus,RGB,sixel,title"}))
+    assert c.sixel is True
+
+
+def test_a_tmux_that_cannot_be_asked_gives_up_on_sixel():
+    # No tmux binary, a server that has gone away, a tmux too old for the
+    # format string: all read as "cannot", which is the safe direction.
+    c = detect(env={"TMUX": TMUX}, is_tty=True, size_fn=fake_size(),
+               query_fn=sixel_da(), tmux_fn=fake_tmux({}))
+    assert c.sixel is False
+
+
+def test_the_feature_list_is_matched_whole():
+    c = detect(env={"TMUX": TMUX}, is_tty=True, size_fn=fake_size(),
+               query_fn=sixel_da(),
+               tmux_fn=fake_tmux({"#{client_termfeatures}": "focus,sixel-ish,RGB"}))
+    assert c.sixel is False
+
+
+def test_the_caps_carry_the_tmux_flag_the_renderers_need():
+    inside = detect(env={"TMUX": TMUX}, is_tty=True, size_fn=fake_size(),
+                    query_fn=fake_query({}), tmux_fn=fake_tmux({}))
+    outside = detect(env={}, is_tty=True, size_fn=fake_size(),
+                     query_fn=fake_query({}))
+    assert (inside.tmux, outside.tmux) == (True, False)
+
+
+def test_the_kitty_probe_goes_through_the_passthrough_wrapper():
+    # An unwrapped APC never reaches the terminal: tmux eats the introducer
+    # and prints the rest as text.
+    seen = []
+
+    def record(request, timeout=0.1):
+        seen.append(request)
+        return "\x1b_Gi=31;OK\x1b\\" if request.startswith("\x1bPtmux;") else None
+
+    c = detect(env={"TMUX": TMUX}, is_tty=True, size_fn=fake_size(),
+               query_fn=record, tmux_fn=fake_tmux({}))
+    assert c.kitty is True
+    assert any(r.startswith("\x1bPtmux;") for r in seen)
+    assert not any(r.startswith("\x1b_G") for r in seen)
+
+
+def test_a_silent_probe_falls_back_to_asking_tmux_who_its_client_is():
+    # tmux need not hand the terminal's reply back to the pane, so silence is
+    # not a no - but passthrough has to be on, or the sequences go nowhere.
+    c = detect(env={"TMUX": TMUX}, is_tty=True, size_fn=fake_size(),
+               query_fn=fake_query({}),
+               tmux_fn=fake_tmux({"allow-passthrough": "on",
+                                  "#{client_termname}": "xterm-kitty"}))
+    assert c.kitty is True
+
+
+def test_ghostty_counts_as_a_kitty_client_under_tmux():
+    c = detect(env={"TMUX": TMUX}, is_tty=True, size_fn=fake_size(),
+               query_fn=fake_query({}),
+               tmux_fn=fake_tmux({"allow-passthrough": "all",
+                                  "#{client_termname}": "xterm-ghostty"}))
+    assert c.kitty is True
+
+
+def test_passthrough_off_means_no_kitty_however_good_the_client():
+    c = detect(env={"TMUX": TMUX}, is_tty=True, size_fn=fake_size(),
+               query_fn=fake_query({}),
+               tmux_fn=fake_tmux({"allow-passthrough": "off",
+                                  "#{client_termname}": "xterm-kitty"}))
     assert c.kitty is False
+
+
+def test_an_unknown_client_terminal_does_not_get_kitty_graphics():
+    # WezTerm usually presents as xterm-256color, which proves nothing.
+    c = detect(env={"TMUX": TMUX}, is_tty=True, size_fn=fake_size(),
+               query_fn=fake_query({}),
+               tmux_fn=fake_tmux({"allow-passthrough": "on",
+                                  "#{client_termname}": "xterm-256color"}))
+    assert c.kitty is False
+
+
+def test_kitty_env_vars_are_ignored_under_tmux():
+    # KITTY_WINDOW_ID survives into a pane from whatever started the server,
+    # which says nothing about the client attached now.
+    c = detect(env={"TMUX": TMUX, "TERM": "xterm-kitty",
+                    "KITTY_WINDOW_ID": "1"},
+               is_tty=True, size_fn=fake_size(), query_fn=fake_query({}),
+               tmux_fn=fake_tmux({}))
+    assert c.kitty is False
+
+
+def test_tmux_is_not_asked_when_the_terminal_never_claimed_sixel():
+    def explode(*args):
+        if args[-1] == "#{client_termfeatures}":
+            raise AssertionError("no reason to ask about sixel")
+        return ""
+
+    c = detect(env={"TMUX": TMUX}, is_tty=True, size_fn=fake_size(),
+               query_fn=fake_query({}), tmux_fn=explode)
+    assert c.sixel is False
+
+
+def test_tmux_query_is_empty_without_a_tmux_binary(monkeypatch):
+    monkeypatch.setattr(caps_mod.shutil, "which", lambda name: None)
+    assert caps_mod.tmux_query("display", "-p", "#{client_termname}") == ""
+
+
+def test_tmux_query_is_empty_when_tmux_fails(monkeypatch):
+    class Failed:
+        returncode = 1
+        stdout = "no server running"
+
+    monkeypatch.setattr(caps_mod.shutil, "which", lambda name: "/usr/bin/tmux")
+    monkeypatch.setattr(caps_mod.subprocess, "run", lambda *a, **k: Failed())
+    assert caps_mod.tmux_query("show", "-gv", "allow-passthrough") == ""
+
+
+def test_tmux_query_survives_a_hung_tmux(monkeypatch):
+    def hang(*args, **kwargs):
+        raise caps_mod.subprocess.TimeoutExpired(cmd="tmux", timeout=1.0)
+
+    monkeypatch.setattr(caps_mod.shutil, "which", lambda name: "/usr/bin/tmux")
+    monkeypatch.setattr(caps_mod.subprocess, "run", hang)
+    assert caps_mod.tmux_query("display", "-p", "#{client_termname}") == ""
+
+
+def test_passthrough_doubles_every_escape_and_wraps_in_a_dcs():
+    from specterm1d.term.caps import tmux_passthrough
+
+    wrapped = tmux_passthrough("\x1b_Ga=d,i=1\x1b\\")
+    assert wrapped == "\x1bPtmux;\x1b\x1b_Ga=d,i=1\x1b\x1b\\\x1b\\"
 
 
 def test_iterm2_detected_from_term_program():

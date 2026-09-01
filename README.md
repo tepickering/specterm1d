@@ -86,14 +86,50 @@ data, and the terminal paints the spines, tick marks, labels, title and legend
 as its own glyphs at your font size. The curve ends up with more pixels than
 it had when matplotlib was spending margins on labels nobody could read.
 
-Under tmux the kitty protocol is never probed — its passthrough is unreliable
-— so tmux users get sixel where tmux was built with `--enable-sixel`, and a
-window or the text backend otherwise.
+Under tmux, nothing the terminal answers describes the terminal, so
+specterm1d asks tmux instead.
+
+**kitty graphics need `allow-passthrough`.** Add this to `~/.tmux.conf`:
+
+```bash
+set -g allow-passthrough on
+```
+
+Every graphics escape is then wrapped in tmux's DCS passthrough and handed to
+the terminal outside; without the option tmux discards them and you get a
+window or the text backend. An unwrapped APC is worse than useless there —
+tmux eats the introducer and prints the payload into your status line.
+
+**Under tmux the mouse is coarse, and the arrow keys are not.** tmux has no
+SGR-Pixels mouse mode — asked about DECSET 1016 it answers "never heard of
+it" — so it reports the pointer in whole cells, and a click lands on a cell
+boundary rather than where you aimed. This matters for anything you place by
+eye: a continuum level for a gaussian fit, the edges of an equivalent-width
+region. **Click to get close, then nudge with the arrow keys**, which move
+the crosshair by 0.2% of the visible range (5% with shift) and are far finer
+than a cell. `--gui` is the way out if you want true pixel pointing under
+tmux; the graphics window has its own mouse and tmux is not in the way of it.
+
+Expect some flicker as well. Each frame is a few hundred KB of base64 that
+tmux parses and re-emits in 4 KB pieces, interleaved with its own screen
+updates. tmux also does not know an image is present, so a pane repaint (a
+resize, a pane switch, leaving copy mode) blanks the plot until the next
+keystroke redraws it.
+
+**The sixel bit in the Device Attributes reply describes tmux**, which
+answers it whenever **tmux** was built with `--enable-sixel`, with no client
+attached at all. So it is checked against what tmux says its client can do
+(`#{client_termfeatures}`). Otherwise you get the placeholder tmux draws for
+an image it cannot pass on — `SIXEL IMAGE (134x44)` padded out with `+` until
+it fills the window — instead of a plot.
+
+`--renderer kitty` or `--renderer sixel` forces the issue where the probe is
+too cautious.
 
 ### Two-window mode
 
 Terminals with no inline-graphics protocol get a real matplotlib window
-instead of half-block cells. This is what IRAF `splot` did on a
+instead of block glyphs. This is what IRAF `splot` did on a
 Tektronix-emulating terminal like `xgterm`: **you point at a feature in the
 graphics window and press a key**, while prompts and measurement results
 scroll past in the text terminal.
@@ -112,11 +148,11 @@ Every binding means the same thing in both modes; that is the point.
 | xterm with sixel | sixel, inline |
 | Terminal.app, GNOME Terminal, Alacritty | graphics window |
 | xterm on Linux with X11 | graphics window |
-| ssh with no display, tmux over ssh | half-block |
+| ssh with no display, tmux over ssh | text |
 
 Inline graphics still win where the terminal supports them — one window beats
-two — with iTerm2 the one exception. Half-block is the last resort: correct
-everywhere, comfortable nowhere.
+two — with iTerm2 the one exception. The text backend is the last resort:
+correct everywhere, comfortable nowhere.
 
 ### Why iTerm2 gets a window
 
@@ -147,8 +183,8 @@ specterm1d --renderer text spec1d.fits
 
 The window opens at 1200x800 and is then yours to resize; resizing re-renders
 at the new size. If no window can be opened — no `DISPLAY`, no usable
-toolkit — specterm1d prints one line to stderr and falls back to half-block
-rather than refusing to start.
+toolkit — specterm1d prints one line to stderr and falls back to the text
+backend rather than refusing to start.
 
 ## Keys
 
@@ -191,15 +227,17 @@ memory cannot misfire:
 Three, stated plainly:
 
 - **The cursor is always keyboard-driven and optionally mouse-driven.** Arrow
-  keys move a 2D crosshair and shift moves further. Inline Kitty, sixel and
-  iTerm2 graphics enable click/drag positioning and draw the full crosshair by
-  default. Terminals that answer DECRQM for DECSET 1016 - kitty, ghostty and
-  the sixel terminals among them - report the pointer in pixels rather than
-  cells, so the cursor tracks it instead of snapping to the character grid.
-  Terminals that do not, and tmux, keep cell coordinates. Halfblock leaves
-  mouse reporting off, having no pixels to place. Use
-  `--no-mouse` or `:mouse no` when you want the terminal's normal text selection
-  instead.
+  keys move a 2D crosshair by 0.2% of the visible range, 5% with shift.
+  Inline Kitty, sixel and iTerm2 graphics enable click/drag positioning and
+  draw the full crosshair by default. Terminals that answer DECRQM for DECSET
+  1016 - kitty, ghostty and the sixel terminals among them - report the
+  pointer in pixels rather than cells, so the cursor tracks it instead of
+  snapping to the character grid. Terminals that do not, **and tmux, which
+  has no pixel mouse mode at all**, keep cell coordinates: click to get
+  close and then nudge with the arrows, which are finer than a cell. The
+  text backend leaves mouse reporting off, having no pixels to place. Use
+  `--no-mouse` or `:mouse no` when you want the terminal's normal text
+  selection instead.
 - **`%` cycles the extraction/calibration variant** (`OPT/COUNTS`,
   `BOX/COUNTS`, `OPT/FLAM`, …) rather than an image band, which is the useful
   analogue for pypeit products.

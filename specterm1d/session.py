@@ -240,7 +240,7 @@ class Session:
             pixel_width=pixel_width or self.caps.pixel_width,
             pixel_height=pixel_height or self.caps.pixel_height,
             is_tty=self.caps.is_tty, gui=self.caps.gui,
-            pixel_mouse=self.caps.pixel_mouse,
+            pixel_mouse=self.caps.pixel_mouse, tmux=self.caps.tmux,
         )
         self.renderer.teardown()      # force a full repaint
         self._chrome_cache = None
