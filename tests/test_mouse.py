@@ -225,13 +225,13 @@ def test_no_mouse_disables_the_inline_default(monkeypatch, tabular_fits):
     assert session.mouse_enabled is False
 
 
-def test_halfblock_keeps_mouse_off_by_default(monkeypatch, tabular_fits):
-    session = _run_cli(monkeypatch, tabular_fits, "halfblock")
+def test_the_text_backend_keeps_mouse_off_by_default(monkeypatch, tabular_fits):
+    session = _run_cli(monkeypatch, tabular_fits, "text")
     assert session.mouse_enabled is False
 
 
-def test_mouse_can_still_enable_halfblock(monkeypatch, tabular_fits):
-    session = _run_cli(monkeypatch, tabular_fits, "halfblock", "--mouse")
+def test_mouse_can_still_be_enabled_for_the_text_backend(monkeypatch, tabular_fits):
+    session = _run_cli(monkeypatch, tabular_fits, "text", "--mouse")
     assert session.mouse_enabled is True
 
 
@@ -259,9 +259,9 @@ def test_sixel_pixel_mouse_distinguishes_points_inside_one_cell():
     assert step == pytest.approx(expected)
 
 
-def test_halfblock_keeps_cell_coordinates_even_where_1016_is_offered():
+def test_the_text_backend_keeps_cell_coordinates_even_where_1016_is_offered():
     """The terminal may support pixel reports while the backend cannot use
-    them: halfblock paints its own chrome and has no pixel placement."""
+    them: the text backend paints its own chrome and has no pixel placement."""
     session, out = make_session()
     session.caps = replace(
         session.caps, pixel_width=800, pixel_height=480, pixel_mouse=True,

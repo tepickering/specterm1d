@@ -66,7 +66,7 @@ target-version = "py313"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "C4", "SIM", "RUF"]
 ignore = [
-    # "%d" formatting in halfblock.py's per-cell hot loop is deliberate: it
+    # "%d" formatting in text.py's per-cell hot loop is deliberate: it
     # formats a tuple in one operation where an f-string needs three lookups.
     "UP031",
 ]

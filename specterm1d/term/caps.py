@@ -39,10 +39,14 @@ _KITTY_TERMS = {"xterm-kitty"}
 _KITTY_PROGRAMS = {"ghostty", "WezTerm"}
 
 # Renderer preference order. Inline graphics win where they exist - one window
-# beats two - then a real graphics window, and halfblock last: correct
+# beats two - then a real graphics window, and the text backend last: correct
 # everywhere, comfortable nowhere. LEAKY_INLINE is the one exception; see
 # choose_renderer.
-PREFERENCE = ("kitty", "iterm2", "sixel", "gui", "halfblock")
+PREFERENCE = ("kitty", "iterm2", "sixel", "gui", "text")
+
+# The one backend that needs no capability at all, so it is never probed for
+# and always terminates the search.
+ALWAYS_AVAILABLE = "text"
 
 # iTerm2 never frees an inline image. Every distinct frame costs it about a
 # decoded bitmap of resident memory for the life of the session, so panning a
@@ -224,6 +228,6 @@ def choose_renderer(caps: TerminalCaps, override: str | None = None, out=None):
         # is a window to fall back to.
         if caps.iterm2 and caps.gui and name in LEAKY_INLINE:
             continue
-        if name == "halfblock" or getattr(caps, name, False):
+        if name == ALWAYS_AVAILABLE or getattr(caps, name, False):
             return _FACTORIES[name](caps, out)
     raise RuntimeError("no renderer available")

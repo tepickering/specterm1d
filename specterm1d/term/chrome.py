@@ -1,9 +1,9 @@
 """Axis decoration painted as terminal text.
 
-The halfblock backend renders one pixel per column and two per row, so a
-116x43 terminal gives the figure 116x82 pixels. A 4pt tick label is 5.6 px
-tall there - smeared across three cells and unreadable at any font size,
-because the smear is a property of the pixel budget, not the typeface.
+The text backend renders two pixels per column and two per row, so a 116x43
+terminal gives the figure 232x86 pixels. A 4pt tick label is 5.6 px tall
+there - smeared across three cells and unreadable at any font size, because
+the smear is a property of the pixel budget, not the typeface.
 
 The terminal draws the same digits as native glyphs at the user's own font
 size. So in this mode the figure carries only data, full bleed, and
@@ -99,7 +99,7 @@ def _paint(fg: str, truecolor: bool) -> str:
     if not truecolor:
         import numpy as np
 
-        from specterm1d.term.halfblock import quantize_256
+        from specterm1d.term.text import quantize_256
 
         codes = quantize_256(np.array([[_rgb(fg), _rgb(COLOR_BG)]]))
         return f"\x1b[38;5;{int(codes[0][0])}m\x1b[48;5;{int(codes[0][1])}m"
