@@ -100,21 +100,21 @@ the terminal outside; without the option tmux discards them and you get a
 window or the text backend. An unwrapped APC is worse than useless there —
 tmux eats the introducer and prints the payload into your status line.
 
-Through tmux the frame itself travels by file rather than inline: a 1920x1216
-pane is 720 KB of base64, which the inline path splits into 180 separate
-passthrough sequences for tmux to parse and re-emit one after another,
-interleaved with its own screen updates. Handing kitty a path instead is 81
-bytes. That needs the terminal to be on this machine, so over ssh the inline
-path stays.
+**Under tmux the mouse is coarse, and the arrow keys are not.** tmux has no
+SGR-Pixels mouse mode — asked about DECSET 1016 it answers "never heard of
+it" — so it reports the pointer in whole cells, and a click lands on a cell
+boundary rather than where you aimed. This matters for anything you place by
+eye: a continuum level for a gaussian fit, the edges of an equivalent-width
+region. **Click to get close, then nudge with the arrow keys**, which move
+the crosshair by 0.2% of the visible range (5% with shift) and are far finer
+than a cell. `--gui` is the way out if you want true pixel pointing under
+tmux; the graphics window has its own mouse and tmux is not in the way of it.
 
-Two things tmux costs you regardless. It does not know an image is present, so
-a pane repaint (a resize, a pane switch, leaving copy mode) blanks the plot
-until the next keystroke redraws it. And it has no SGR-Pixels mouse mode —
-asked about DECSET 1016 it answers "never heard of it" — so under tmux the
-pointer resolves to a cell rather than a pixel. Arrow keys move the cursor by
-0.2% of the visible range (5% with shift), which is finer than a cell, so the
-usual way to place a continuum level precisely is to click near it and then
-nudge.
+Expect some flicker as well. Each frame is a few hundred KB of base64 that
+tmux parses and re-emits in 4 KB pieces, interleaved with its own screen
+updates. tmux also does not know an image is present, so a pane repaint (a
+resize, a pane switch, leaving copy mode) blanks the plot until the next
+keystroke redraws it.
 
 **The sixel bit in the Device Attributes reply describes tmux**, which
 answers it whenever **tmux** was built with `--enable-sixel`, with no client
@@ -227,15 +227,17 @@ memory cannot misfire:
 Three, stated plainly:
 
 - **The cursor is always keyboard-driven and optionally mouse-driven.** Arrow
-  keys move a 2D crosshair and shift moves further. Inline Kitty, sixel and
-  iTerm2 graphics enable click/drag positioning and draw the full crosshair by
-  default. Terminals that answer DECRQM for DECSET 1016 - kitty, ghostty and
-  the sixel terminals among them - report the pointer in pixels rather than
-  cells, so the cursor tracks it instead of snapping to the character grid.
-  Terminals that do not, and tmux, keep cell coordinates. Halfblock leaves
-  mouse reporting off, having no pixels to place. Use
-  `--no-mouse` or `:mouse no` when you want the terminal's normal text selection
-  instead.
+  keys move a 2D crosshair by 0.2% of the visible range, 5% with shift.
+  Inline Kitty, sixel and iTerm2 graphics enable click/drag positioning and
+  draw the full crosshair by default. Terminals that answer DECRQM for DECSET
+  1016 - kitty, ghostty and the sixel terminals among them - report the
+  pointer in pixels rather than cells, so the cursor tracks it instead of
+  snapping to the character grid. Terminals that do not, **and tmux, which
+  has no pixel mouse mode at all**, keep cell coordinates: click to get
+  close and then nudge with the arrows, which are finer than a cell. The
+  text backend leaves mouse reporting off, having no pixels to place. Use
+  `--no-mouse` or `:mouse no` when you want the terminal's normal text
+  selection instead.
 - **`%` cycles the extraction/calibration variant** (`OPT/COUNTS`,
   `BOX/COUNTS`, `OPT/FLAM`, …) rather than an image band, which is the useful
   analogue for pypeit products.

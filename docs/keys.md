@@ -15,6 +15,15 @@ The crosshair's **y** is not decoration: `e`, `k` and `h` take the
 continuum from the cursor's y at each marked point, exactly as IRAF's
 `sumflux.x` does with `eqy1`/`eqy2`.
 
+```{note}
+An arrow moves the crosshair by 0.2% of the visible range, 5% with shift.
+That is finer than the mouse can place it in any terminal reporting the
+pointer in cells — **every terminal under tmux**, which has no pixel mouse
+mode. So where the y value matters, click to get close and then nudge with
+the arrows rather than trusting the click. `--gui` gives true pixel
+pointing if you would rather have it.
+```
+
 ## Commands
 
 | Key | Command | Status |
@@ -113,7 +122,7 @@ cursor +/- d/4, and `p` pans to cursor +/- d, which doubles the span.
 | `:log` | resume writing measurements to the log file |
 | `:mask` | highlight masked pixels |
 | `:model` | overlay the object model |
-| `:mouse [yes\|no]` | toggle positioning (inline by default; pixel-precise where the terminal does DECSET 1016) |
+| `:mouse [yes\|no]` | toggle positioning (inline by default; pixel-precise where the terminal does DECSET 1016, cells under tmux) |
 | `:nolog` | stop writing to the log file |
 | `:nosysid` | accepted for splot compatibility; no effect |
 | `:nsum` | 2D-image concern; specterm1d ingests 1D |
