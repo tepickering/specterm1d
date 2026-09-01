@@ -36,7 +36,7 @@ Arrow keys move a crosshair, `?` pages the full keymap, `q` quits.
 
 | Flag | Effect |
 |------|--------|
-| `--renderer kitty\|iterm2\|sixel\|gui\|halfblock` | force a backend instead of probing |
+| `--renderer kitty\|iterm2\|sixel\|gui\|quadrant\|halfblock` | force a backend instead of probing |
 | `--units nm` | start in other dispersion units (`um`, `GHz`, anything astropy knows) |
 | `--mouse` / `--no-mouse` | override click/drag positioning (on for inline graphics) |
 | `--format NAME` | force a loader instead of sniffing the file |
@@ -48,7 +48,7 @@ Arrow keys move a crosshair, `?` pages the full keymap, `q` quits.
 
 ## Terminal support
 
-One matplotlib figure is rendered to an RGBA buffer, and five interchangeable
+One matplotlib figure is rendered to an RGBA buffer, and six interchangeable
 backends put those pixels on screen. Axes, tick labels, error bands and fit
 overlays therefore look the same everywhere; only the fidelity changes.
 
@@ -58,25 +58,40 @@ overlays therefore look the same everywhere; only the fidelity changes.
 | iTerm2 | **graphics window** | its inline image path leaks; see below |
 | Windows Terminal 1.22+, foot, xterm, Konsole, mlterm, contour | sixel | detected via Primary Device Attributes |
 | **stock macOS Terminal, GNOME Terminal, Alacritty** | **graphics window** | no graphics protocol exists; see below |
-| ssh with no display, tmux over ssh | halfblock | always available |
+| ssh with no display, tmux over ssh | quadrant blocks | always available |
 
-The halfblock backend is first-class, not a stub - it is what runs wherever
-neither an inline protocol nor a window is available. Each cell is `▀` with the top source pixel as foreground and the
-bottom as background, giving `cols x 2*rows` effective pixels; frames are
-diffed so a redraw costs only the cells that changed. Terminal.app never
-gained 24-bit colour, so there is an xterm-256 path as well as truecolor.
+The block backends are first-class, not a stub - they are what runs wherever
+neither an inline protocol nor a window is available. The default is
+`quadrant`: each cell becomes one of eight Block Elements glyphs that split it
+on a 2x2 grid, one group of subpixels drawn in the foreground colour and the
+rest in the background, for `2*cols x 2*rows` effective pixels. Four
+subpixels admit eight distinct splits, so the best one is found by trying all
+of them. `halfblock` is the same machinery on a 1x2 grid - each cell is `▀`,
+top pixel foreground, bottom background - which reproduces the figure exactly
+but gets half the columns. Both diff frames so a redraw costs only the cells
+that changed, and both have an xterm-256 path as well as truecolor, since
+Terminal.app never gained 24-bit colour.
 
-Because that gives a 116x43 window a 116x82 pixel figure, halfblock does not
-let matplotlib draw the axis decoration: a 4pt tick label is 5.6 px tall
-there, which is a smear across three cells at any font size. Instead the
-figure is rendered full bleed with nothing but data, and the terminal paints
-the spines, tick marks, labels, title and legend as its own glyphs at your
-font size. The curve ends up with more pixels than it had when matplotlib was
-spending margins on labels nobody could read.
+Halving the binning is worth approximating the colour. On a 4097-pixel UVES
+order in a 116x43 Terminal.app window, quadrants take a screen column from 37
+spectrum pixels to 18, and against a full-resolution render of the same view
+the coarse grid accounts for essentially all of what is left (RMS 53.5,
+against 53.6 for the same grid with exact colour). Two colours per cell is
+not much of a constraint when a curve over a flat background is two colours
+already. `--renderer halfblock` is there for a font that has the half blocks
+but not the quadrants - Andale Mono, for one; U+2596..U+259F are Unicode 1.0
+and present in SF Mono, Menlo and DejaVu Sans Mono.
+
+Even at `2*cols x 2*rows` there is no room for matplotlib's own axis
+decoration: a 4pt tick label is 5.6 px tall, which is a smear across three
+cells at any font size. So the figure is rendered full bleed with nothing but
+data, and the terminal paints the spines, tick marks, labels, title and legend
+as its own glyphs at your font size. The curve ends up with more pixels than
+it had when matplotlib was spending margins on labels nobody could read.
 
 Under tmux the kitty protocol is never probed — its passthrough is unreliable
 — so tmux users get sixel where tmux was built with `--enable-sixel`, and
-halfblock otherwise.
+quadrant blocks otherwise.
 
 ### Two-window mode
 

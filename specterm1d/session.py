@@ -69,7 +69,7 @@ class Session:
         self.log = SplotLog()
         self.showing_log = False
         self.page_index = 0
-        # Only the halfblock backend needs text chrome, and only on a real
+        # Only the block backends need text chrome, and only on a real
         # terminal: --dump writes a PNG, which wants matplotlib's own labels.
         self.text_chrome = bool(getattr(renderer, "text_chrome", False)
                                 and caps is not None and caps.is_tty)

@@ -14,7 +14,7 @@ from specterm1d.plot import SpectrumPlot
 from specterm1d.session import Session
 from specterm1d.term import caps as caps_mod
 
-RENDERERS = ("kitty", "iterm2", "sixel", "gui", "halfblock")
+RENDERERS = ("kitty", "iterm2", "sixel", "gui", "quadrant", "halfblock")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -53,7 +53,7 @@ def resolve_renderer_choice(args) -> str | None:
 
 
 def attach_or_fall_back(renderer, plot, caps, out):
-    """Open the renderer's window, or warn once and use halfblock.
+    """Open the renderer's window, or warn once and fall back to the terminal.
 
     A viewer that refuses to start over a missing window is worse than one
     that draws coarsely, so this is never fatal - even for an explicit
@@ -61,7 +61,7 @@ def attach_or_fall_back(renderer, plot, caps, out):
     through.
     """
     from specterm1d.term.gui import GuiUnavailable
-    from specterm1d.term.halfblock import HalfblockRenderer
+    from specterm1d.term.quadrant import QuadrantRenderer
 
     attach = getattr(renderer, "attach", None)
     if attach is None:
@@ -69,9 +69,9 @@ def attach_or_fall_back(renderer, plot, caps, out):
     try:
         attach(plot)
     except GuiUnavailable as exc:
-        print(f"graphics window unavailable ({exc}); using halfblock",
+        print(f"graphics window unavailable ({exc}); using quadrant blocks",
               file=sys.stderr)
-        return HalfblockRenderer(out=out, truecolor=caps.truecolor)
+        return QuadrantRenderer(out=out, truecolor=caps.truecolor)
     return renderer
 
 

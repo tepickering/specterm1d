@@ -12,6 +12,7 @@ ANSI when written in full, which is far too much per keystroke.
 from __future__ import annotations
 
 import sys
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -49,8 +50,15 @@ def quantize_256(rgb: np.ndarray) -> np.ndarray:
 
 
 def render_cells(cells: np.ndarray, prev: np.ndarray | None = None, *,
-                 truecolor: bool = True, origin: tuple[int, int] = (1, 1)) -> str:
+                 truecolor: bool = True, origin: tuple[int, int] = (1, 1),
+                 glyphs: Sequence[str] = (UPPER_HALF,)) -> str:
     """Turn a cell grid into escape sequences, emitting only changed runs.
+
+    ``cells`` is (rows, cols, 6) - foreground RGB then background RGB - or
+    (rows, cols, 7), where the seventh channel indexes ``glyphs``. Carrying
+    the glyph as a channel rather than a second array is what lets a
+    finer-grained backend reuse the diffing here unchanged: a cell that keeps
+    its colours but changes shape simply differs.
 
     ``origin`` is the 1-based (row, col) of the grid's top-left cell, matching
     the CSI cursor-position convention.
@@ -59,9 +67,11 @@ def render_cells(cells: np.ndarray, prev: np.ndarray | None = None, *,
     if prev is not None and prev.shape != cells.shape:
         prev = None   # a resize invalidates the whole previous frame
 
+    per_cell_glyph = cells.shape[-1] > 6
+
     codes = None
     if not truecolor:
-        codes = quantize_256(cells.reshape(rows, cols, 2, 3))
+        codes = quantize_256(cells[..., :6].reshape(rows, cols, 2, 3))
 
     row0, col0 = origin
     out: list[str] = []
@@ -98,7 +108,8 @@ def render_cells(cells: np.ndarray, prev: np.ndarray | None = None, *,
                     if bg != last_bg:
                         out.append(f"\x1b[48;5;{bg}m")
                         last_bg = bg
-                out.append(UPPER_HALF)
+                out.append(glyphs[int(cells[r, c, 6])] if per_cell_glyph
+                           else glyphs[0])
 
     out.append("\x1b[0m")
     return "".join(out)
@@ -107,6 +118,12 @@ def render_cells(cells: np.ndarray, prev: np.ndarray | None = None, *,
 class HalfblockRenderer:
     name = "halfblock"
     text_chrome = True
+
+    # The glyph vocabulary and the pixel packing that feeds it. QuadrantRenderer
+    # is the same backend with a finer grid, so it overrides these three and
+    # inherits the diffing, the 256-colour path and the teardown.
+    glyphs: Sequence[str] = (UPPER_HALF,)
+    pack = staticmethod(cells_from_rgba)
 
     def __init__(self, out=None, truecolor: bool = True):
         self.out = out if out is not None else sys.stdout
@@ -117,9 +134,10 @@ class HalfblockRenderer:
         return (cols, rows * 2)
 
     def draw(self, rgba: np.ndarray, rect: CellRect) -> None:
-        cells = cells_from_rgba(rgba)[: rect.rows, : rect.cols]
+        cells = self.pack(rgba)[: rect.rows, : rect.cols]
         text = render_cells(cells, self._prev, truecolor=self.truecolor,
-                            origin=(rect.row + 1, rect.col + 1))
+                            origin=(rect.row + 1, rect.col + 1),
+                            glyphs=self.glyphs)
         self.out.write(text)
         self.out.flush()
         self._prev = cells.copy()

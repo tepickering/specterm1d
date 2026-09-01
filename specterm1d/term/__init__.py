@@ -10,11 +10,16 @@ from specterm1d.term.gui import GuiRenderer
 from specterm1d.term.halfblock import HalfblockRenderer
 from specterm1d.term.iterm2 import ITerm2Renderer
 from specterm1d.term.kitty import KittyRenderer
+from specterm1d.term.quadrant import QuadrantRenderer
 from specterm1d.term.sixel import SixelRenderer
 
 register_renderer(
     "halfblock",
     lambda caps, out: HalfblockRenderer(out=out, truecolor=caps.truecolor),
+)
+register_renderer(
+    "quadrant",
+    lambda caps, out: QuadrantRenderer(out=out, truecolor=caps.truecolor),
 )
 register_renderer("kitty", lambda caps, out: KittyRenderer(out, caps))
 register_renderer("iterm2", lambda caps, out: ITerm2Renderer(out, caps))
@@ -27,6 +32,7 @@ __all__ = [
     "HalfblockRenderer",
     "ITerm2Renderer",
     "KittyRenderer",
+    "QuadrantRenderer",
     "Renderer",
     "SixelRenderer",
     "TerminalCaps",

@@ -239,7 +239,8 @@ def test_gui_mode_never_enables_terminal_mouse_reporting():
 def test_gui_is_offered_as_a_renderer_choice():
     from specterm1d.cli import RENDERERS, build_parser
 
-    assert RENDERERS == ("kitty", "iterm2", "sixel", "gui", "halfblock")
+    assert RENDERERS == ("kitty", "iterm2", "sixel", "gui", "quadrant",
+                         "halfblock")
     assert build_parser().parse_args(["--renderer", "gui", "x.fits"]).renderer == "gui"
 
 
@@ -276,7 +277,7 @@ def test_a_window_that_will_not_open_falls_back_with_one_warning(capsys):
                         is_tty=True, gui=True)
     renderer = attach_or_fall_back(Refuses(), SpectrumPlot(400, 300), caps,
                                    out=io.StringIO())
-    assert renderer.name == "halfblock"
+    assert renderer.name == "quadrant"
     captured = capsys.readouterr()
     assert "graphics window unavailable" in captured.err
     assert captured.err.count("\n") == 1
