@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from specterm1d import theme
-from specterm1d.cli import build_parser, main
+from specterm1d.cli import build_parser, default_theme_for, main
 from specterm1d.plot import PlotRequest, SpectrumPlot
 from specterm1d.spec import build_spec
 from specterm1d.term.base import CellRect
@@ -225,14 +225,32 @@ def test_the_lookup_table_is_built_once_per_theme():
 
 # ---- the command line ------------------------------------------------
 
-def test_theme_option_defaults_to_xgterm():
-    assert build_parser().parse_args(["a.fits"]).theme == "xgterm"
+def test_theme_option_is_unset_until_the_renderer_is_known():
+    assert build_parser().parse_args(["a.fits"]).theme is None
+
+
+def test_the_text_backend_defaults_to_dark():
+    """One ink on one ground, to match a backend that is already a reduction."""
+    assert default_theme_for("text") == "dark"
+
+
+def test_every_other_backend_defaults_to_xgterm():
+    for name in ("kitty", "iterm2", "sixel", "gui"):
+        assert default_theme_for(name) == "xgterm"
 
 
 def test_theme_option_rejects_an_unknown_name(capsys):
     with pytest.raises(SystemExit):
         build_parser().parse_args(["a.fits", "--theme", "no-such-theme"])
     assert "no-such-theme" in capsys.readouterr().err
+
+
+def test_dump_keeps_xgterm_though_it_borrows_the_text_backend(tabular_fits,
+                                                             tmp_path):
+    """What --dump writes is a full matplotlib figure, not terminal chrome."""
+    out = tmp_path / "frame.png"
+    main([str(tabular_fits), "--dump", str(out), "--dump-size", "160x100"])
+    assert theme.active() is theme.XGTERM
 
 
 def test_theme_option_is_applied_before_anything_draws(tabular_fits, tmp_path):

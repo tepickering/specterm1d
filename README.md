@@ -37,7 +37,7 @@ Arrow keys move a crosshair, `?` pages the full keymap, `q` quits.
 | Flag | Effect |
 |------|--------|
 | `--renderer kitty\|iterm2\|sixel\|gui\|text` | force a backend instead of probing |
-| `--theme NAME` | colour theme: `xgterm` (default), `dark`, or a matplotlib style |
+| `--theme NAME` | colour theme: `xgterm` (default; `dark` under `text`), or a matplotlib style |
 | `--units nm` | start in other dispersion units (`um`, `GHz`, anything astropy knows) |
 | `--mouse` / `--no-mouse` | override click/drag positioning (on for inline graphics) |
 | `--format NAME` | force a loader instead of sniffing the file |
@@ -224,6 +224,14 @@ these are the X11 primaries, chosen to stay legible on a CRT across a room.
 specterm1d --theme dark spec.fits        # blue on charcoal; the pre-1.0 look
 specterm1d --theme ggplot spec.fits      # or any matplotlib style name
 ```
+
+The `text` backend is the exception: it defaults to `dark`. Its decoration is
+terminal text around a plot of 2x2 block glyphs, and xgterm's palette asks
+more of that than it can give - three inks around the box, and a slate
+surround meeting a black plot on a seam the quantizer has to resolve. `dark`
+is one foreground on one ground, which is the same simplification the backend
+already is. `--theme xgterm` overrides it, as an explicit `--theme` overrides
+any default.
 
 A theme names colours by *role*, and every backend honours all of them: the
 matplotlib figure, the terminal-drawn chrome of the `text` backend, and the

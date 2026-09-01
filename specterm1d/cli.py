@@ -31,10 +31,10 @@ def build_parser() -> argparse.ArgumentParser:
     # choices without a metavar would print all thirty-odd names in --help;
     # argparse still lists them when one is misspelled, which is where a user
     # actually wants to see the set.
-    parser.add_argument("--theme", default=theme.DEFAULT.name, metavar="NAME",
-                        choices=theme.names(),
-                        help="colour theme: xgterm (default), dark, or the "
-                             "colours of any matplotlib style")
+    parser.add_argument("--theme", metavar="NAME", choices=theme.names(),
+                        help="colour theme: xgterm (default; dark under the "
+                             "text backend), or the colours of any "
+                             "matplotlib style")
     parser.add_argument("--format", help="force a loader instead of sniffing")
     parser.add_argument("--units", help="initial dispersion units, e.g. nm, um, GHz")
     parser.add_argument(
@@ -51,6 +51,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dump-size", default="1200x700",
                         help="pixel size for --dump, as WxH")
     return parser
+
+
+# The text backend draws its own decoration in terminal text over a plot of
+# 2x2 block glyphs, and xgterm's palette asks more of that than it can give:
+# three inks around a box, and a slate surround meeting a black plot on a seam
+# the quantizer has to resolve. dark is one foreground on one ground, which is
+# the same simplification the backend already is. An explicit --theme wins.
+DEFAULT_THEME = {"text": "dark"}
+
+
+def default_theme_for(renderer_name: str) -> str:
+    return DEFAULT_THEME.get(renderer_name, theme.DEFAULT.name)
 
 
 def resolve_renderer_choice(args) -> str | None:
@@ -92,7 +104,11 @@ def main(argv: list[str] | None = None) -> int:
 
     # Before anything builds a figure: the palette is module state, and a
     # figure created under the wrong one would carry it until the next resize.
-    theme.use(args.theme)
+    # Without --theme the default waits until the renderer is known, below;
+    # --dump and --cursor keep xgterm, since what they produce is a full
+    # matplotlib figure however the renderer they borrow draws on a screen.
+    if args.theme:
+        theme.use(args.theme)
 
     try:
         collection = registry.load(args.files[0], format=args.format)
@@ -137,6 +153,11 @@ def main(argv: list[str] | None = None) -> int:
     width, height = renderer.target_pixels(caps.rows - 2, caps.cols)
     plot = SpectrumPlot(width, height)
     renderer = attach_or_fall_back(renderer, plot, caps, out=sys.stdout)
+    # After the fallback, not before: a window that refused to open leaves the
+    # text backend drawing, and that is what the palette should answer to.
+    # The figure restyles itself on the next draw, so this is not too late.
+    if not args.theme:
+        theme.use(default_theme_for(renderer.name))
     session = Session(collection, renderer, plot, out=sys.stdout, caps=caps)
     session.debug = args.debug
 
