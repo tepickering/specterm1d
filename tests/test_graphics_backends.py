@@ -82,6 +82,47 @@ def test_kitty_renderer_positions_before_drawing():
     assert "\x1b[4;6H" in out.getvalue()
 
 
+def _tmux_caps(**kw):
+    from specterm1d.term.caps import TerminalCaps
+    return TerminalCaps(kitty=True, iterm2=False, sixel=False, truecolor=True,
+                        rows=24, cols=80, pixel_width=800, pixel_height=480,
+                        is_tty=True, tmux=True, **kw)
+
+
+def test_kitty_wraps_its_graphics_in_tmux_passthrough():
+    out = io.StringIO()
+    KittyRenderer(out, _tmux_caps()).draw(_rgba(),
+                                          CellRect(row=0, col=0, rows=4, cols=8))
+    text = out.getvalue()
+    assert "\x1bPtmux;" in text
+    # The bare introducer is what tmux eats and prints as text, so none may
+    # survive outside a wrapper.
+    assert "\x1b_G" not in text.replace("\x1b\x1b_G", "")
+
+
+def test_the_cursor_move_is_not_wrapped():
+    # tmux has to see an ordinary CSI to keep track of where the cursor is.
+    out = io.StringIO()
+    KittyRenderer(out, _tmux_caps()).draw(_rgba(),
+                                          CellRect(row=3, col=5, rows=4, cols=8))
+    assert out.getvalue().startswith("\x1b[4;6H")
+
+
+def test_kitty_leaves_its_escapes_alone_outside_tmux():
+    out = io.StringIO()
+    KittyRenderer(out, _caps()).draw(_rgba(), CellRect(row=0, col=0, rows=4, cols=8))
+    text = out.getvalue()
+    assert "\x1b_G" in text
+    assert "\x1bPtmux;" not in text
+
+
+def test_the_teardown_delete_is_wrapped_too():
+    out = io.StringIO()
+    KittyRenderer(out, _tmux_caps()).teardown()
+    assert out.getvalue().startswith("\x1bPtmux;")
+    assert "a=d" in out.getvalue()
+
+
 def test_kitty_target_pixels_uses_the_window_pixel_size():
     renderer = KittyRenderer(io.StringIO(), _caps(rows=24, cols=80, xp=800, yp=480))
     # 24 rows tall window, asking for the 22-row plot area.

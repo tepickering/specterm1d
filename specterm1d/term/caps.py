@@ -30,13 +30,21 @@ DA_QUERY = "\x1b[c"
 # ones that do not by anything in the environment.
 PIXEL_MOUSE_QUERY = "\x1b[?1016$p"
 
-# Inside tmux the Primary Device Attributes describe tmux, not the terminal
-# you are looking at: a build with --enable-sixel answers attribute 4 with no
-# client attached at all. tmux then draws any sixel it cannot pass on to its
-# client as a placeholder - "SIXEL IMAGE (134x44)" padded out with '+' until
-# it fills the window - so trusting that bit produces a screen of plus signs
-# rather than a plot. tmux does know what its own client can do, so ask it.
-TMUX_FEATURES = ("tmux", "display", "-p", "#{client_termfeatures}")
+# Inside tmux, nothing the terminal answers describes the terminal. The
+# Primary Device Attributes describe tmux - a build with --enable-sixel
+# answers attribute 4 with no client attached at all - and tmux draws any
+# sixel it cannot pass on to its client as a placeholder, "SIXEL IMAGE
+# (134x44)" padded out with '+' until it fills the window. An APC fares worse
+# still: tmux eats the introducer and prints the payload as text. So inside
+# tmux the questions go to tmux, which does know what its client is.
+TMUX_CLIENT_FEATURES = ("display", "-p", "#{client_termfeatures}")
+TMUX_CLIENT_TERM = ("display", "-p", "#{client_termname}")
+TMUX_PASSTHROUGH_OPTION = ("show", "-gv", "allow-passthrough")
+
+# Terminals whose kitty-graphics support can be recognised from the terminal
+# name tmux reports for its client. WezTerm is missing on purpose: it usually
+# presents as xterm-256color, which proves nothing.
+_KITTY_CLIENT_TERMS = {"xterm-kitty", "xterm-ghostty"}
 
 _DA_RE = re.compile(r"\x1b\[\?([0-9;]+)c")
 _DECRQM_RE = re.compile(r"\x1b\[\?(\d+);(\d+)\$y")
@@ -85,6 +93,8 @@ class TerminalCaps:
     gui: bool = False
     # Native Kitty can report SGR mouse positions in pixels (DECSET 1016).
     pixel_mouse: bool = False
+    # Running under tmux, so graphics escapes need the passthrough wrapper.
+    tmux: bool = False
 
 
 def register_renderer(name: str, factory: Callable) -> None:
@@ -148,21 +158,35 @@ def _da_has_sixel(response: str | None) -> bool:
     return "4" in match.group(1).split(";")
 
 
-def tmux_client_features() -> str:
-    """tmux's own report of what the terminal outside it can do.
+def tmux_query(*args: str) -> str:
+    """Run a tmux command and return its output, or "" if it cannot be run.
 
     Empty on anything unexpected - no tmux binary, a server that has gone
-    away, a tmux too old for the format string - which reads as "cannot",
-    the safe direction: --renderer sixel still forces the issue.
+    away, a tmux too old for the format string - and every caller reads empty
+    as "no", the safe direction. An explicit --renderer still forces the issue.
     """
-    if shutil.which(TMUX_FEATURES[0]) is None:
+    if shutil.which("tmux") is None:
         return ""
     try:
-        done = subprocess.run(TMUX_FEATURES, capture_output=True, text=True,
+        done = subprocess.run(("tmux", *args), capture_output=True, text=True,
                               timeout=1.0, check=False)
     except Exception:
         return ""
     return done.stdout.strip() if done.returncode == 0 else ""
+
+
+def tmux_passthrough(sequence: str) -> str:
+    """Wrap a terminal escape so tmux hands it to the terminal outside.
+
+    tmux consumes an APC introducer and prints what follows as text - the
+    kitty backend's own teardown turning up in the status line as
+    "Ga=d,d=i,i=1,q=2;" is what this is for. Every ESC inside has to be
+    doubled, because the wrapper is a DCS string and ends at the first ST.
+
+    Inert unless the tmux server has `allow-passthrough` on; with it off tmux
+    discards the sequence silently, which is at least not visible garbage.
+    """
+    return "\x1bPtmux;" + sequence.replace("\x1b", "\x1b\x1b") + "\x1b\\"
 
 
 def _decrqm_supported(response: str | None, mode: int) -> bool:
@@ -177,7 +201,7 @@ def _decrqm_supported(response: str | None, mode: int) -> bool:
 
 def detect(env: dict | None = None, query_fn: Callable | None = None,
            size_fn: Callable | None = None, is_tty: bool = True,
-           features_fn: Callable | None = None) -> TerminalCaps:
+           tmux_fn: Callable | None = None) -> TerminalCaps:
     # Local: term/__init__ imports caps before gui, and probing is not on any
     # hot path.
     from specterm1d.term import gui as gui_backend
@@ -192,7 +216,7 @@ def detect(env: dict | None = None, query_fn: Callable | None = None,
     # False in production while the tests, which always inject, stay green.
     query_fn = query_fn or query
     size_fn = size_fn or window_size
-    features_fn = features_fn or tmux_client_features
+    tmux_fn = tmux_fn or tmux_query
     rows, cols, xpixel, ypixel = size_fn()
     # 0 means "not reported", not "zero pixels wide". Terminal.app reports 0,
     # and so may any injected size_fn, so normalize here rather than only in
@@ -204,7 +228,20 @@ def detect(env: dict | None = None, query_fn: Callable | None = None,
     in_tmux = bool(env.get("TMUX"))
 
     kitty = False
-    if not in_tmux:
+    if in_tmux:
+        # Probe through the same wrapper the drawing will use, so a reply
+        # proves both that the terminal outside speaks the protocol and that
+        # tmux is letting sequences through. Silence is not a no, though:
+        # tmux need not hand the terminal's reply back to the pane. So fall
+        # back on asking tmux who its client is - and whether passthrough is
+        # on at all, since without it the wrapped sequences go nowhere and
+        # the pane would just stay black.
+        response = query_fn(tmux_passthrough(KITTY_QUERY)) if query_fn else None
+        kitty = bool(response and "OK" in response)
+        if not kitty:
+            allowed = tmux_fn(*TMUX_PASSTHROUGH_OPTION) in ("on", "all")
+            kitty = allowed and tmux_fn(*TMUX_CLIENT_TERM) in _KITTY_CLIENT_TERMS
+    else:
         response = query_fn(KITTY_QUERY) if query_fn else None
         kitty = bool(response and "OK" in response)
         if not kitty:
@@ -219,9 +256,9 @@ def detect(env: dict | None = None, query_fn: Callable | None = None,
 
     sixel = _da_has_sixel(query_fn(DA_QUERY) if query_fn else None)
     if sixel and in_tmux:
-        # See TMUX_FEATURES: the attribute came from tmux, so it has to be
-        # checked against what tmux says its client can display.
-        sixel = "sixel" in features_fn().split(",")
+        # The attribute came from tmux, so check it against what tmux says its
+        # client can display.
+        sixel = "sixel" in tmux_fn(*TMUX_CLIENT_FEATURES).split(",")
 
     # Pixel mouse positions are a property of the terminal, not of whichever
     # graphics protocol it also happens to speak, so ask about the mode rather
@@ -237,6 +274,7 @@ def detect(env: dict | None = None, query_fn: Callable | None = None,
         kitty=kitty, iterm2=iterm2, sixel=sixel, truecolor=truecolor,
         rows=rows, cols=cols, pixel_width=xpixel, pixel_height=ypixel,
         is_tty=True, gui=gui_backend.available(env), pixel_mouse=pixel_mouse,
+        tmux=in_tmux,
     )
 
 

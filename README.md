@@ -74,15 +74,31 @@ the spines, tick marks, labels, title and legend as its own glyphs at your
 font size. The curve ends up with more pixels than it had when matplotlib was
 spending margins on labels nobody could read.
 
-Under tmux the kitty protocol is never probed — its passthrough is unreliable
-— and the sixel bit in the Device Attributes reply is not trusted either.
-tmux answers that bit whenever **tmux** was built with `--enable-sixel`, with
-no client attached at all; whether an image reaches the screen depends on the
-terminal outside tmux. So specterm1d asks tmux what its client can do
-(`#{client_termfeatures}`) and uses sixel only when that lists it. Otherwise
-you get the placeholder tmux draws for an image it cannot pass on —
-`SIXEL IMAGE (134x44)` padded out with `+` until it fills the window —
-instead of a plot. `--renderer sixel` forces the issue where the probe is
+Under tmux, nothing the terminal answers describes the terminal, so
+specterm1d asks tmux instead.
+
+**kitty graphics need `allow-passthrough`.** Add this to `~/.tmux.conf`:
+
+```bash
+set -g allow-passthrough on
+```
+
+Every graphics escape is then wrapped in tmux's DCS passthrough and handed to
+the terminal outside; without the option tmux discards them and you get a
+window or the text backend. An unwrapped APC is worse than useless there —
+tmux eats the introducer and prints the payload into your status line. Note
+that tmux does not know an image is present, so a pane repaint (a resize, a
+pane switch, leaving copy mode) blanks the plot until the next keystroke
+redraws it.
+
+**The sixel bit in the Device Attributes reply describes tmux**, which
+answers it whenever **tmux** was built with `--enable-sixel`, with no client
+attached at all. So it is checked against what tmux says its client can do
+(`#{client_termfeatures}`). Otherwise you get the placeholder tmux draws for
+an image it cannot pass on — `SIXEL IMAGE (134x44)` padded out with `+` until
+it fills the window — instead of a plot.
+
+`--renderer kitty` or `--renderer sixel` forces the issue where the probe is
 too cautious.
 
 ### Two-window mode
