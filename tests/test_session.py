@@ -8,8 +8,8 @@ from specterm1d.plot import SpectrumPlot
 from specterm1d.session import Session
 from specterm1d.spec import SpecCollection, SpecEntry, build_spec
 from specterm1d.term.caps import TerminalCaps
-from specterm1d.term.halfblock import HalfblockRenderer
 from specterm1d.term.input import Key
+from specterm1d.term.text import TextRenderer
 
 
 def make_session(n_entries=3):
@@ -22,7 +22,7 @@ def make_session(n_entries=3):
                         rows=24, cols=80, pixel_width=None, pixel_height=None,
                         is_tty=True)
     out = io.StringIO()
-    renderer = HalfblockRenderer(out=out, truecolor=True)
+    renderer = TextRenderer(out=out, truecolor=True)
     return Session(coll, renderer, SpectrumPlot(80, 44), out, caps), out
 
 
@@ -144,7 +144,7 @@ def _session_with(caps, renderer=None):
     spec = build_spec(np.linspace(5000.0, 6000.0, 200), np.full(200, 1.0))
     coll = SpecCollection(entries=[SpecEntry("A", {"F": spec}, "F")], path="x")
     out = io.StringIO()
-    renderer = renderer or HalfblockRenderer(out=out, truecolor=True)
+    renderer = renderer or TextRenderer(out=out, truecolor=True)
     width, height = renderer.target_pixels(caps.rows - 2, caps.cols)
     return Session(coll, renderer, SpectrumPlot(width, height), out, caps)
 
@@ -221,7 +221,7 @@ def _line_session():
                           path="x")
     caps = TerminalCaps(False, False, False, True, 24, 80, None, None, True)
     out = io.StringIO()
-    return Session(coll, HalfblockRenderer(out=out), SpectrumPlot(80, 44),
+    return Session(coll, TextRenderer(out=out), SpectrumPlot(80, 44),
                    out, caps)
 
 

@@ -36,7 +36,7 @@ Arrow keys move a crosshair, `?` pages the full keymap, `q` quits.
 
 | Flag | Effect |
 |------|--------|
-| `--renderer kitty\|iterm2\|sixel\|gui\|halfblock` | force a backend instead of probing |
+| `--renderer kitty\|iterm2\|sixel\|gui\|text` | force a backend instead of probing |
 | `--units nm` | start in other dispersion units (`um`, `GHz`, anything astropy knows) |
 | `--mouse` / `--no-mouse` | override click/drag positioning (on for inline graphics) |
 | `--format NAME` | force a loader instead of sniffing the file |
@@ -58,21 +58,33 @@ overlays therefore look the same everywhere; only the fidelity changes.
 | iTerm2 | **graphics window** | its inline image path leaks; see below |
 | Windows Terminal 1.22+, foot, xterm, Konsole, mlterm, contour | sixel | detected via Primary Device Attributes |
 | **stock macOS Terminal, GNOME Terminal, Alacritty** | **graphics window** | no graphics protocol exists; see below |
-| ssh with no display, tmux over ssh | halfblock | always available |
+| ssh with no display, tmux over ssh | text | always available |
 
-The halfblock backend is first-class, not a stub - it is what runs wherever
-neither an inline protocol nor a window is available. Each cell is `▀` with the top source pixel as foreground and the
-bottom as background, giving `cols x 2*rows` effective pixels; frames are
-diffed so a redraw costs only the cells that changed. Terminal.app never
-gained 24-bit colour, so there is an xterm-256 path as well as truecolor.
+The `text` backend is first-class, not a stub - it is what runs wherever
+neither an inline protocol nor a window is available, and it needs nothing
+from the terminal but Unicode and colour. Each cell becomes one of eight
+Block Elements glyphs that split it on a 2x2 grid, one group of subpixels
+drawn in the foreground colour and the rest in the background, for
+`2*cols x 2*rows` effective pixels. Four subpixels admit eight distinct
+splits, so the best one is found by trying all of them. Frames are diffed so
+a redraw costs only the cells that changed, and there is an xterm-256 path as
+well as truecolor, since Terminal.app never gained 24-bit colour.
 
-Because that gives a 116x43 window a 116x82 pixel figure, halfblock does not
-let matplotlib draw the axis decoration: a 4pt tick label is 5.6 px tall
-there, which is a smear across three cells at any font size. Instead the
-figure is rendered full bleed with nothing but data, and the terminal paints
-the spines, tick marks, labels, title and legend as its own glyphs at your
-font size. The curve ends up with more pixels than it had when matplotlib was
-spending margins on labels nobody could read.
+Four subpixels sharing two colours is an approximation, and a cheap one here.
+On a 4097-pixel UVES order in a 116x43 Terminal.app window a screen column
+carries 18 spectrum pixels; measured against a full-resolution render of the
+same view, that coarse grid accounts for essentially all of the error (RMS
+53.5, against 53.6 for the same grid with exact colour). Two colours per cell
+is not much of a constraint when a curve over a flat background is two colours
+already. The glyphs are U+2596..U+259F, Unicode 1.0, present in SF Mono, Menlo
+and DejaVu Sans Mono.
+
+Even at `2*cols x 2*rows` there is no room for matplotlib's own axis
+decoration: a 4pt tick label is 5.6 px tall, which is a smear across three
+cells at any font size. So the figure is rendered full bleed with nothing but
+data, and the terminal paints the spines, tick marks, labels, title and legend
+as its own glyphs at your font size. The curve ends up with more pixels than
+it had when matplotlib was spending margins on labels nobody could read.
 
 Under tmux, nothing the terminal answers describes the terminal, so
 specterm1d asks tmux instead.
@@ -166,7 +178,7 @@ To force either mode:
 
 ```
 specterm1d --gui spec1d.fits              # or --renderer gui
-specterm1d --renderer halfblock spec1d.fits
+specterm1d --renderer text spec1d.fits
 ```
 
 The window opens at 1200x800 and is then yours to resize; resizing re-renders

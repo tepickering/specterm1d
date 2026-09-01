@@ -1,8 +1,8 @@
 # tests/test_text_chrome.py
 """Axis decoration drawn as terminal text rather than into the figure.
 
-At halfblock resolution a 116x43 terminal gives a 116x82 pixel figure, where
-a tick label is a 5.6 px smear across three cells. The terminal draws the same
+At block-glyph resolution a 116x43 terminal gives a 232x86 pixel figure,
+where a tick label is a 5.6 px smear across three cells. The terminal draws the same
 digits as crisp native glyphs, so in this mode the figure carries only data.
 """
 import numpy as np

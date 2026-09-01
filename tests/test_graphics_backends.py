@@ -351,4 +351,4 @@ def test_sixel_renderer_writes_a_complete_sequence():
 def test_all_three_backends_are_registered():
     import specterm1d.term  # noqa: F401
     from specterm1d.term.caps import _FACTORIES
-    assert {"kitty", "iterm2", "sixel", "halfblock"} <= set(_FACTORIES)
+    assert {"kitty", "iterm2", "sixel", "text"} <= set(_FACTORIES)

@@ -93,13 +93,13 @@ def test_session_notices_an_interactive_renderer():
 
 
 def test_session_stays_non_interactive_for_terminal_renderers():
-    from specterm1d.term.halfblock import HalfblockRenderer
+    from specterm1d.term.text import TextRenderer
 
     out = io.StringIO()
     spec = build_spec(np.linspace(5000.0, 6000.0, 200), np.full(200, 1.0))
     coll = SpecCollection(entries=[SpecEntry("A", {"F": spec}, "F")], path="x")
     caps = TerminalCaps(False, False, False, True, 24, 80, None, None, True)
-    session = Session(coll, HalfblockRenderer(out=out), SpectrumPlot(80, 44),
+    session = Session(coll, TextRenderer(out=out), SpectrumPlot(80, 44),
                       out, caps)
     assert session.interactive is False
 
@@ -239,7 +239,7 @@ def test_gui_mode_never_enables_terminal_mouse_reporting():
 def test_gui_is_offered_as_a_renderer_choice():
     from specterm1d.cli import RENDERERS, build_parser
 
-    assert RENDERERS == ("kitty", "iterm2", "sixel", "gui", "halfblock")
+    assert RENDERERS == ("kitty", "iterm2", "sixel", "gui", "text")
     assert build_parser().parse_args(["--renderer", "gui", "x.fits"]).renderer == "gui"
 
 
@@ -253,8 +253,8 @@ def test_the_gui_shortcut_selects_the_gui_renderer():
 def test_an_explicit_renderer_wins_over_the_gui_shortcut():
     from specterm1d.cli import build_parser, resolve_renderer_choice
 
-    args = build_parser().parse_args(["--gui", "--renderer", "halfblock", "x.fits"])
-    assert resolve_renderer_choice(args) == "halfblock"
+    args = build_parser().parse_args(["--gui", "--renderer", "text", "x.fits"])
+    assert resolve_renderer_choice(args) == "text"
 
 
 def test_no_flags_leaves_the_choice_to_probing():
@@ -276,7 +276,7 @@ def test_a_window_that_will_not_open_falls_back_with_one_warning(capsys):
                         is_tty=True, gui=True)
     renderer = attach_or_fall_back(Refuses(), SpectrumPlot(400, 300), caps,
                                    out=io.StringIO())
-    assert renderer.name == "halfblock"
+    assert renderer.name == "text"
     captured = capsys.readouterr()
     assert "graphics window unavailable" in captured.err
     assert captured.err.count("\n") == 1
@@ -301,12 +301,12 @@ def test_the_tty_check_still_refuses_a_pipe_in_gui_mode(monkeypatch, capsys,
 
 def test_a_terminal_renderer_passes_straight_through_attachment():
     from specterm1d.cli import attach_or_fall_back
-    from specterm1d.term.halfblock import HalfblockRenderer
+    from specterm1d.term.text import TextRenderer
 
     caps = TerminalCaps(kitty=False, iterm2=False, sixel=False, truecolor=True,
                         rows=43, cols=116, pixel_width=None, pixel_height=None,
                         is_tty=True, gui=False)
-    renderer = HalfblockRenderer(out=io.StringIO())
+    renderer = TextRenderer(out=io.StringIO())
     assert attach_or_fall_back(renderer, SpectrumPlot(116, 82), caps,
                                out=io.StringIO()) is renderer
 
@@ -355,14 +355,14 @@ def test_the_gui_render_does_not_draw_the_cursor_as_a_marker():
     assert requests[-1].cursor is None
 
 
-def test_the_halfblock_render_keeps_a_vertical_cursor():
-    from specterm1d.term.halfblock import HalfblockRenderer
+def test_the_text_render_keeps_a_vertical_cursor():
+    from specterm1d.term.text import TextRenderer
 
     out = io.StringIO()
     spec = build_spec(np.linspace(5000.0, 6000.0, 200), np.full(200, 1.0))
     coll = SpecCollection(entries=[SpecEntry("A", {"F": spec}, "F")], path="x")
     caps = TerminalCaps(False, False, False, True, 24, 80, None, None, True)
-    session = Session(coll, HalfblockRenderer(out=out), SpectrumPlot(80, 44),
+    session = Session(coll, TextRenderer(out=out), SpectrumPlot(80, 44),
                       out, caps)
     session.view.reset_limits()
     session.view.cursor_x = 5500.0

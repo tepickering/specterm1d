@@ -207,8 +207,8 @@ def test_empty_title_is_left_alone():
 def test_chrome_shrinks_with_the_figure():
     from specterm1d.plot import chrome_for
 
-    # An 80-column terminal asks halfblock for an 80x44 figure. Default 9pt
-    # labels are a quarter of that height and collide into mush.
+    # A tiny figure - an 80x24 terminal asks the text backend for 160x48.
+    # Default 9pt labels are a quarter of that height and collide into mush.
     tiny = chrome_for(80, 44)
     small = chrome_for(200, 96)
     full = chrome_for(1200, 700)

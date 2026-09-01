@@ -65,8 +65,8 @@ class Chrome:
         return replace(self, margins=(left, right, top, bottom))
 
 
-# The halfblock backend renders one pixel per terminal column and two per row,
-# so an 80x24 terminal asks for an 80x44 figure. Default 9pt labels are 12.5 px
+# The text backend renders two pixels per terminal column and two per row, so
+# an 80x24 terminal asks for a 160x48 figure. Default 9pt labels are 12.5 px
 # tall there - over a quarter of the figure - and collide into unreadable mush.
 # Below roughly 500 px the whole chrome has to shrink with the figure, and the
 # y label goes first because horizontal pixels are the scarcest.
@@ -458,7 +458,7 @@ class SpectrumPlot:
         ax.set_ylabel(req.ylabel if chrome.ylabel else "",
                       fontsize=chrome.fontsize)
         # Explicit pad: matplotlib's default 6pt title pad is 8 px, which at
-        # halfblock scale pushes the title off the top of the figure.
+        # block-glyph scale pushes the title off the top of the figure.
         ax.set_title(self.fit_title(req.title) if chrome.title else "",
                      fontsize=chrome.fontsize + 1, pad=chrome.pad + 1.0)
 
@@ -469,7 +469,7 @@ class SpectrumPlot:
 
         A copy, not a view: buffer_rgba() aliases the renderer's own memory,
         so any frame a caller is still holding would mutate on the next
-        render. The halfblock backend diffs against the previous frame.
+        render. The text backend diffs against the previous frame.
         """
         self.draw(req)
         return np.array(self.fig.canvas.buffer_rgba(), dtype=np.uint8)

@@ -95,7 +95,7 @@ def _bad_continuum_session():
     from specterm1d.session import Session
     from specterm1d.spec import SpecCollection, SpecEntry, build_spec
     from specterm1d.term.caps import TerminalCaps
-    from specterm1d.term.halfblock import HalfblockRenderer
+    from specterm1d.term.text import TextRenderer
 
     wave = np.linspace(4995.0, 5025.0, 400)
     flux = 6000.0 + 4.3e6 * np.exp(-0.5 * ((wave - 5009.2) / 1.7) ** 2)
@@ -103,7 +103,7 @@ def _bad_continuum_session():
     coll = SpecCollection(entries=[SpecEntry("A", {"F": spec}, "F")], path="x")
     caps = TerminalCaps(False, False, False, True, 24, 80, None, None, True)
     out = io.StringIO()
-    session = Session(coll, HalfblockRenderer(out=out), SpectrumPlot(80, 44),
+    session = Session(coll, TextRenderer(out=out), SpectrumPlot(80, 44),
                       out, caps)
     session.view.reset_limits()
     return session
