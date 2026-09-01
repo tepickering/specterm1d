@@ -1,6 +1,7 @@
 # tests/test_graphics_backends.py
 import base64
 import io
+import pathlib
 import re
 
 import numpy as np
@@ -153,14 +154,38 @@ def test_the_file_route_is_one_escape_where_inline_would_be_many(tmp_path):
     assert len(byfile.getvalue()) < len(inline.getvalue()) / 10
 
 
-def test_old_frames_are_retired_but_the_last_two_are_kept(tmp_path):
-    # The terminal reads a frame when it reaches the escape, not when it is
-    # written, so the frame just drawn must still be on disk.
+def test_frame_files_are_a_bounded_ring(tmp_path):
+    from specterm1d.term.kitty import RING
+
     renderer = KittyRenderer(io.StringIO(), _tmux_caps(), tmpdir=tmp_path)
     rect = CellRect(row=0, col=0, rows=4, cols=8)
-    for _ in range(5):
+    for _ in range(RING * 3):
         renderer.draw(_rgba(64, 64), rect)
-    assert len(list(tmp_path.glob("*.png"))) == 2
+    assert len(list(tmp_path.glob("*.png"))) == RING
+
+
+def test_the_file_named_in_every_escape_exists_when_the_frame_is_written(tmp_path):
+    # How far behind the terminal runs is not knowable from here, so a frame
+    # is never unlinked out from under it - a slow reader picks up a newer
+    # frame under the same name, never a missing one.
+    out = io.StringIO()
+    renderer = KittyRenderer(out, _tmux_caps(), tmpdir=tmp_path)
+    rect = CellRect(row=0, col=0, rows=4, cols=8)
+    for _ in range(12):
+        renderer.draw(_rgba(64, 64), rect)
+
+    named = re.findall(r"C=1,c=8,r=4;([A-Za-z0-9+/=]+)", out.getvalue())
+    assert len(named) == 12
+    for encoded in named:
+        assert pathlib.Path(base64.b64decode(encoded).decode()).exists()
+
+
+def test_a_frame_is_renamed_into_place_never_written_in_place(tmp_path):
+    # A reader arriving mid-write must see the previous frame whole.
+    renderer = KittyRenderer(io.StringIO(), _tmux_caps(), tmpdir=tmp_path)
+    rect = CellRect(row=0, col=0, rows=4, cols=8)
+    renderer.draw(_rgba(64, 64), rect)
+    assert list(tmp_path.glob("*.part")) == []
 
 
 def test_teardown_takes_the_frame_files_with_it(tmp_path):
@@ -204,8 +229,18 @@ def test_the_file_escape_carries_the_placement_geometry(tmp_path):
     from specterm1d.term.kitty import kitty_file_chunk
 
     escape = kitty_file_chunk(tmp_path / "f.png", image_id=7, cols=40, rows=12)
-    assert escape.startswith("\x1b_Ga=T,f=100,t=f,i=7,p=1,q=2,c=40,r=12;")
+    assert escape.startswith("\x1b_Ga=T,f=100,t=f,i=7,p=1,q=2,C=1,c=40,r=12;")
     assert escape.endswith("\x1b\\")
+
+
+def test_every_placement_forbids_the_terminal_moving_the_cursor():
+    # Without C=1 the terminal advances the cursor past the image and tmux,
+    # which never saw an image, writes its next line from the wrong row.
+    inline = next(iter(kitty_chunks(b"x", image_id=1, cols=8, rows=4)))
+    assert "C=1" in inline
+
+    from specterm1d.term.kitty import kitty_file_chunk
+    assert "C=1" in kitty_file_chunk("/tmp/f.png", image_id=1, cols=8, rows=4)
 
 
 def test_kitty_target_pixels_uses_the_window_pixel_size():
