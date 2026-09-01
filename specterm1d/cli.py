@@ -8,6 +8,7 @@ from pathlib import Path
 
 import specterm1d.commands
 import specterm1d.term  # noqa: F401  - registers renderer factories
+from specterm1d import theme
 from specterm1d.io import registry
 from specterm1d.logfile import SplotLog
 from specterm1d.plot import SpectrumPlot
@@ -27,6 +28,13 @@ def build_parser() -> argparse.ArgumentParser:
                         help="force a renderer instead of probing the terminal")
     parser.add_argument("--gui", action="store_true",
                         help="shortcut for --renderer gui (a matplotlib window)")
+    # choices without a metavar would print all thirty-odd names in --help;
+    # argparse still lists them when one is misspelled, which is where a user
+    # actually wants to see the set.
+    parser.add_argument("--theme", default=theme.DEFAULT.name, metavar="NAME",
+                        choices=theme.names(),
+                        help="colour theme: xgterm (default), dark, or the "
+                             "colours of any matplotlib style")
     parser.add_argument("--format", help="force a loader instead of sniffing")
     parser.add_argument("--units", help="initial dispersion units, e.g. nm, um, GHz")
     parser.add_argument(
@@ -81,6 +89,10 @@ def main(argv: list[str] | None = None) -> int:
     if not args.files:
         build_parser().print_help()
         return 2
+
+    # Before anything builds a figure: the palette is module state, and a
+    # figure created under the wrong one would carry it until the next resize.
+    theme.use(args.theme)
 
     try:
         collection = registry.load(args.files[0], format=args.format)

@@ -6,6 +6,20 @@ from astropy.nddata import InverseVariance
 
 
 @pytest.fixture(autouse=True)
+def isolate_theme():
+    """Put the palette back, whatever a test did to it.
+
+    The active theme is module state that the CLI sets once, so a test that
+    passes --theme would otherwise recolour every test after it.
+    """
+    from specterm1d import theme
+
+    previous = theme.active()
+    yield
+    theme.use(previous)
+
+
+@pytest.fixture(autouse=True)
 def isolate_cwd(tmp_path, monkeypatch):
     """Keep tests out of the user's working directory.
 

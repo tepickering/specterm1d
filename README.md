@@ -37,6 +37,7 @@ Arrow keys move a crosshair, `?` pages the full keymap, `q` quits.
 | Flag | Effect |
 |------|--------|
 | `--renderer kitty\|iterm2\|sixel\|gui\|text` | force a backend instead of probing |
+| `--theme NAME` | colour theme: `xgterm` (default), `dark`, or a matplotlib style |
 | `--units nm` | start in other dispersion units (`um`, `GHz`, anything astropy knows) |
 | `--mouse` / `--no-mouse` | override click/drag positioning (on for inline graphics) |
 | `--format NAME` | force a loader instead of sniffing the file |
@@ -211,6 +212,45 @@ Multi-point commands are explicit: press the command key to arm it, then mark
 each point with `<space>`. The crosshair's **y** matters — `e`, `k` and `h`
 take their continuum from the cursor's y at each marked point, which is what
 IRAF's `sumflux.x` does with `eqy1`/`eqy2`.
+
+## Colours
+
+The default palette is xgterm's, because that is the window splot was read in
+for thirty years: a cyan box on black, yellow numbers, green captions, and a
+white spectrum on a DarkSlateGray surround. It is high contrast by design -
+these are the X11 primaries, chosen to stay legible on a CRT across a room.
+
+```bash
+specterm1d --theme dark spec.fits        # blue on charcoal; the pre-1.0 look
+specterm1d --theme ggplot spec.fits      # or any matplotlib style name
+```
+
+A theme names colours by *role*, and every backend honours all of them: the
+matplotlib figure, the terminal-drawn chrome of the `text` backend, and the
+sixel palette, which is derived from the active theme rather than fixed.
+
+| Role | xgterm | What it draws |
+|------|--------|---------------|
+| `figure` | DarkSlateGray | around the box - and the ground the text chrome sits on |
+| `plot` | black | inside the box |
+| `spine` | cyan | spines, tick marks, the `│ └ ┬ ┤` glyphs |
+| `tick_label` | yellow | the numbers on the axes |
+| `text` | green | title, axis labels, legend |
+| `line` | white | the spectrum |
+| `sigma` | light blue | the error band |
+| `mask` / `fit` | red / magenta | masked columns, fitted profiles |
+| `cursor` | red | crosshair and markers |
+| `overlay` | yellow, coral, magenta | overlay arrays |
+
+`--theme` also accepts any name in `matplotlib.style.available` - `ggplot`,
+`dark_background`, `Solarize_Light2`, `tableau-colorblind10` and the rest.
+Misspell one and the error lists the full set. Only a style's **colours** are
+taken, not its fonts, line widths or grid settings: those are tuned here
+against the terminal's pixel budget, where a stylesheet written for a page
+would put a 12 pt label on an 86 px figure. The roles a stylesheet has no
+opinion about are derived from the ones it does - the error band is the line
+blended halfway into the plot background, and the mask takes the warmest
+colour in the style's property cycle.
 
 ## Not implemented yet
 

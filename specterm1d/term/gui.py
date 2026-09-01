@@ -13,7 +13,7 @@ import importlib
 import os
 import sys
 
-from specterm1d.plot import COLOR_FG
+from specterm1d import theme
 from specterm1d.term.base import Motion
 from specterm1d.term.input import Key
 
@@ -267,9 +267,10 @@ class GuiRenderer:
             # plot alone.
             self._background = self.canvas.copy_from_bbox(ax.bbox)
         if self._vline is None:
-            self._vline = ax.axvline(x, color=COLOR_FG, lw=0.7, alpha=0.7,
+            ink = theme.active().cursor
+            self._vline = ax.axvline(x, color=ink, lw=0.7, alpha=0.7,
                                      animated=True)
-            self._hline = ax.axhline(y, color=COLOR_FG, lw=0.7, alpha=0.7,
+            self._hline = ax.axhline(y, color=ink, lw=0.7, alpha=0.7,
                                      animated=True)
         self._vline.set_xdata([x, x])
         self._hline.set_ydata([y, y])

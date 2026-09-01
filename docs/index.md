@@ -12,6 +12,7 @@ install
 quickstart
 terminals
 keys
+colours
 measuring
 batch
 differences

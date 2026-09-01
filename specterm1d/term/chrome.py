@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from specterm1d.plot import COLOR_BG, COLOR_FG
+from specterm1d import theme
 from specterm1d.term.base import CellRect
 
 V_SPINE = "│"
@@ -91,20 +91,24 @@ def _rgb(hex_color: str) -> tuple[int, int, int]:
 
 
 def _paint(fg: str, truecolor: bool) -> str:
-    """SGR for ``fg`` on the plot background, so the panel reads as one piece.
+    """SGR for ``fg`` on the figure ground, so the panel reads as one piece.
 
     Without an explicit background the decoration sits on whatever the user's
-    theme provides and the figure looks like a dark rectangle pasted onto it.
+    terminal colours provide and the figure looks like a dark rectangle pasted
+    onto it. The ground is the figure colour rather than the plot colour
+    because this text is drawn outside the box - which is also what makes
+    xgterm's slate surround appear around a black plot.
     """
+    ground = theme.active().figure
     if not truecolor:
         import numpy as np
 
         from specterm1d.term.text import quantize_256
 
-        codes = quantize_256(np.array([[_rgb(fg), _rgb(COLOR_BG)]]))
+        codes = quantize_256(np.array([[_rgb(fg), _rgb(ground)]]))
         return f"\x1b[38;5;{int(codes[0][0])}m\x1b[48;5;{int(codes[0][1])}m"
     fr, fg_, fb = _rgb(fg)
-    br, bg_, bb = _rgb(COLOR_BG)
+    br, bg_, bb = _rgb(ground)
     return f"\x1b[38;2;{fr};{fg_};{fb}m\x1b[48;2;{br};{bg_};{bb}m"
 
 
@@ -129,7 +133,12 @@ def render_chrome(layout: ChromeLayout, xlim: tuple[float, float],
     """Escape sequences drawing the decoration around ``layout.plot``."""
     plot = layout.plot
     right_edge = layout.outer.col + layout.outer.cols
-    body = _paint(COLOR_FG, truecolor)
+    palette = theme.active()
+    # Three inks, because the terminal is drawing what matplotlib draws in
+    # the other backends: the box, the numbers on it, and the captions.
+    body = _paint(palette.text, truecolor)
+    spine_ink = _paint(palette.spine, truecolor)
+    label_ink = _paint(palette.tick_label, truecolor)
     out: list[str] = []
 
     def put(row: int, col: int, text: str, sgr: str = body) -> None:
@@ -179,8 +188,12 @@ def render_chrome(layout: ChromeLayout, xlim: tuple[float, float],
         text = tick_rows.get(row)
         gutter = layout.outer.col
         width = spine_col - gutter
-        label = (text or "").rjust(width)[:width] if width > 0 else ""
-        put(row, gutter, label + (Y_TICK if text else V_SPINE))
+        # Blank gutter rows are painted too, spaces and all: they carry the
+        # ground colour, and skipping them would leave the terminal's own
+        # background showing through beside the box.
+        if width > 0:
+            put(row, gutter, (text or "").rjust(width)[:width], label_ink)
+        put(row, spine_col, Y_TICK if text else V_SPINE, spine_ink)
 
     # ---- bottom spine, with a tick mark under each x tick ----
     if layout.axis_row < layout.outer.row + layout.outer.rows:
@@ -190,7 +203,7 @@ def render_chrome(layout: ChromeLayout, xlim: tuple[float, float],
         axis = [H_SPINE] * plot.cols
         for col in columns:
             axis[min(max(col - plot.col, 0), plot.cols - 1)] = X_TICK
-        put(layout.axis_row, spine_col, CORNER + "".join(axis))
+        put(layout.axis_row, spine_col, CORNER + "".join(axis), spine_ink)
 
         # ---- x tick labels, centred, dropping any that would collide ----
         row = layout.label_row
@@ -202,7 +215,7 @@ def render_chrome(layout: ChromeLayout, xlim: tuple[float, float],
                 start = min(max(start, plot.col), right_edge - len(text))
                 if start <= used:
                     continue
-                put(row, start, text)
+                put(row, start, text, label_ink)
                 used = start + len(text)
 
             # The x label claims the tail of the row only if it is still free.

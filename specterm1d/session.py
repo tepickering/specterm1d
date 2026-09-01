@@ -18,9 +18,9 @@ from pathlib import Path
 
 import numpy as np
 
-from specterm1d import keymap
+from specterm1d import keymap, theme
 from specterm1d.logfile import SplotLog
-from specterm1d.plot import COLOR_OVERLAY, SpectrumPlot, tick_values
+from specterm1d.plot import SpectrumPlot, tick_values
 from specterm1d.spec import SpecCollection
 from specterm1d.term.base import CellRect, Motion
 from specterm1d.term.caps import TerminalCaps
@@ -327,13 +327,14 @@ class Session:
         Panning redraws it every keystroke; the labels usually have not moved,
         and a few hundred bytes of escape per key is worth avoiding.
         """
+        overlay = theme.active().overlay
         text = render_chrome(
             layout, self.view.xlim, self.view.ylim,
             xticks=self.x_ticks(layout.plot.cols),
             yticks=self.y_ticks(layout.plot.rows),
             title=self.title(),
             xlabel=request.xlabel, ylabel=request.ylabel,
-            legend=[(name, COLOR_OVERLAY[i % len(COLOR_OVERLAY)])
+            legend=[(name, overlay[i % len(overlay)])
                     for i, name in enumerate(sorted(self.view.overlays))],
             truecolor=self.caps.truecolor,
         )
