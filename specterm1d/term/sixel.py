@@ -32,6 +32,8 @@ def palette_for(palette: theme.Theme) -> np.ndarray:
     """
     data = (palette.line, palette.sigma, palette.mask, palette.fit,
             palette.cursor, *palette.overlay)
+    if palette.grid:
+        data += (palette.grid_color,)
     chrome = (palette.spine, palette.tick_label, palette.text)
     entries = [palette.plot, palette.figure, *data, *chrome]
     entries += [theme.blend(color, palette.plot) for color in data]

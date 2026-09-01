@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     # argparse still lists them when one is misspelled, which is where a user
     # actually wants to see the set.
     parser.add_argument("--theme", metavar="NAME", choices=theme.names(),
-                        help="color theme: xgterm (default), dark (default "
+                        help="colour theme: xgterm (default), dark (default "
                              "for text renderer), or any valid matplotlib "
                              "style")
     parser.add_argument("--format", help="force a loader instead of sniffing")

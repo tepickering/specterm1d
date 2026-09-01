@@ -324,6 +324,19 @@ class SpectrumPlot:
             spine.set_visible(chrome.frame)
             spine.set_color(palette.spine)
             spine.set_linewidth(0.8 if chrome.minor_ticks else 0.5)
+        # The grid goes with the frame. In bare mode the terminal draws the
+        # tick marks from its own tick values, which need not be the ones
+        # matplotlib's locator picked, and a grid ruled somewhere else than
+        # the ticks it belongs to reads as a fault rather than a style.
+        if chrome.frame and palette.grid:
+            ax.set_axisbelow(palette.grid_below)
+            # Kwargs alongside a false first argument turn the grid on with a
+            # warning, so the off case has to be a separate call.
+            ax.grid(True, color=palette.grid_color, linestyle=palette.grid_style,
+                    linewidth=palette.grid_width, alpha=palette.grid_alpha)
+        else:
+            ax.grid(False)
+
         if not chrome.frame:
             ax.tick_params(which="both", left=False, right=False, top=False,
                            bottom=False, labelleft=False, labelbottom=False)

@@ -93,7 +93,7 @@ def test_a_style_that_sets_almost_nothing_still_yields_every_role():
     # defaults; a partial style must not leave a role empty.
     t = theme.from_mpl_style("fast")
     for value in (t.figure, t.plot, t.spine, t.tick_label, t.text, t.line,
-                  t.sigma, t.mask, t.fit, t.cursor, *t.overlay):
+                  t.sigma, t.mask, t.fit, t.cursor, t.grid_color, *t.overlay):
         assert value.startswith("#") and len(value) == 7
 
 
@@ -102,6 +102,28 @@ def test_every_theme_resolves_to_a_complete_palette():
         t = theme.resolve(name)
         assert len(t.overlay) == 3
         assert t.name == name
+
+
+def test_neither_builtin_theme_draws_a_grid():
+    """splot drew a box and tick marks and nothing across the data."""
+    assert theme.XGTERM.grid is False
+    assert theme.DARK.grid is False
+
+
+def test_a_style_that_asks_for_a_grid_gets_one():
+    t = theme.from_mpl_style("ggplot")
+    assert t.grid is True
+    assert t.grid_color == "#ffffff"
+    assert t.grid_below is True
+
+
+def test_the_grid_keeps_the_style_own_dashes_and_weight():
+    t = theme.from_mpl_style("bmh")
+    assert (t.grid_style, t.grid_width) == ("--", 0.5)
+
+
+def test_a_style_with_no_grid_leaves_it_off():
+    assert theme.from_mpl_style("grayscale").grid is False
 
 
 def test_blend_is_a_midpoint():
@@ -142,6 +164,30 @@ def test_switching_theme_repaints_a_live_figure():
     with theme.using("xgterm"):
         plot.draw(_request())
         assert plot.fig.get_facecolor() != dark
+
+
+def test_the_grid_is_drawn_for_a_style_that_wants_it():
+    with theme.using("ggplot"):
+        plot = SpectrumPlot(640, 400)
+        plot.draw(_request())
+        assert all(line.get_visible() for line in plot.ax.get_xgridlines())
+        assert plot.ax.get_xgridlines()[0].get_color() == "#ffffff"
+
+
+def test_no_grid_where_the_theme_asks_for_none():
+    with theme.using("xgterm"):
+        plot = SpectrumPlot(640, 400)
+        plot.draw(_request())
+        assert not any(line.get_visible() for line in plot.ax.get_xgridlines())
+
+
+def test_bare_mode_drops_the_grid_even_when_the_theme_wants_one():
+    """The terminal rules the ticks there, from tick values of its own."""
+    with theme.using("ggplot"):
+        plot = SpectrumPlot(640, 400)
+        plot.bare = True
+        plot.draw(_request())
+        assert not any(line.get_visible() for line in plot.ax.get_xgridlines())
 
 
 # ---- the terminal chrome follows it too ------------------------------
@@ -206,6 +252,11 @@ def test_palette_leads_with_the_grounds_and_holds_every_role():
     for hexcolor in ("#ffffff", "#00ffff", "#ffff00", "#00ff00", "#ff0000"):
         rgb = tuple(int(hexcolor[i:i + 2], 16) for i in (1, 3, 5))
         assert rgb in listed
+
+
+def test_a_grid_colour_earns_a_palette_entry():
+    palette = palette_for(theme.resolve("ggplot"))
+    assert [255, 255, 255] in palette.tolist()
 
 
 def test_palette_drops_colours_the_lookup_table_cannot_tell_apart():

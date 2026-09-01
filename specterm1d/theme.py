@@ -35,6 +35,18 @@ class Theme:
     cursor: str        # crosshair and markers
     overlay: tuple[str, str, str]
 
+    # A grid is as much of a matplotlib style's look as its colours are, so a
+    # style that asks for one gets it. Neither built-in theme does: splot drew
+    # a box and tick marks and nothing across the data. The remaining grid
+    # rcParams - axes.grid.axis and axes.grid.which - are left at both/major,
+    # since the only style in the library that sets them draws no grid at all.
+    grid: bool = False
+    grid_color: str = "#b0b0b0"
+    grid_style: str = "-"
+    grid_width: float = 0.8
+    grid_alpha: float = 1.0
+    grid_below: bool | str = "line"    # True, False, or "line"; see axisbelow
+
 
 # IRAF's stdgraph colour table on xgterm's DarkSlateGray ground: 1 white,
 # 2 red, 5 yellow, 6 cyan, 7 magenta, 8 coral. Blue (4) would be the faithful
@@ -116,12 +128,14 @@ def _farthest(colors: list[str], *from_: str) -> str:
 
 
 def from_mpl_style(name: str) -> Theme:
-    """Derive a theme from a matplotlib style's *colours*.
+    """Derive a theme from a matplotlib style's colours and its grid.
 
-    Only the colours. A style also carries fonts, line widths and grid
-    settings, and applying those would fight the chrome sizing, which is
-    tuned against the terminal's pixel budget rather than a page. A style
-    may set only a few parameters, so the defaults fill in the rest.
+    Not from the rest of it. A style also carries fonts, line widths and
+    padding, and applying those would fight the chrome sizing, which is tuned
+    against the terminal's pixel budget rather than a page. The grid is the
+    one non-colour thing taken, because a style that draws one is not
+    recognisable without it. A style may set only a few parameters, so the
+    defaults fill in the rest.
     """
     import matplotlib.style as mplstyle
     from matplotlib import rcParamsDefault
@@ -155,6 +169,12 @@ def from_mpl_style(name: str) -> Theme:
         fit=_farthest(cycle, line, mask),
         cursor=mask,
         overlay=(overlay[0], overlay[1], overlay[2]),
+        grid=bool(params["axes.grid"]),
+        grid_color=_hex(params["grid.color"]),
+        grid_style=params["grid.linestyle"],
+        grid_width=float(params["grid.linewidth"]),
+        grid_alpha=float(params["grid.alpha"]),
+        grid_below=params["axes.axisbelow"],
     )
 
 

@@ -254,6 +254,7 @@ sixel palette, which is derived from the active theme rather than fixed.
 | `mask` / `fit` | red / magenta | masked columns, fitted profiles |
 | `cursor` | red | crosshair and markers |
 | `overlay` | yellow, coral, magenta | overlay arrays |
+| `grid` | none | rules across the plot, where a matplotlib style asks for them |
 
 `--dump` and `--cursor` keep xgterm whichever backend they borrow. What they
 write is a full matplotlib figure, so tying its palette to a renderer picked
@@ -262,13 +263,17 @@ showing the same data.
 
 `--theme` also accepts any name in `matplotlib.style.available` - `ggplot`,
 `dark_background`, `Solarize_Light2`, `tableau-colorblind10` and the rest.
-Misspell one and the error lists the full set. Only a style's **colours** are
-taken, not its fonts, line widths or grid settings: those are tuned here
-against the terminal's pixel budget, where a stylesheet written for a page
-would put a 12 pt label on an 86 px figure. The roles a stylesheet has no
-opinion about are derived from the ones it does - the error band is the line
-blended halfway into the plot background, and the mask takes the warmest
-colour in the style's property cycle.
+Misspell one and the error lists the full set. A style's **colours and its
+grid** come across; its fonts, line widths and padding do not, because those
+are tuned here against the terminal's pixel budget, where a stylesheet written
+for a page would put a 12 pt label on an 86 px figure. The grid keeps the
+style's own colour, dashes, weight and stacking order - `ggplot` without its
+white rules is not `ggplot` - with one exception: under the `text` backend the
+terminal draws the tick marks from tick values of its own, and a grid ruled
+anywhere but on them would read as a fault rather than a style. The roles a
+stylesheet has no opinion about are derived from the ones it does - the error
+band is the line blended halfway into the plot background, and the mask takes
+the warmest colour in the style's property cycle.
 
 There is no per-role override on the command line. A script that wants one
 builds the theme itself - roles are ordinary dataclass fields:
