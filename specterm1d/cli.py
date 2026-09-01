@@ -126,13 +126,14 @@ def main(argv: list[str] | None = None) -> int:
             session.dump_png(args.dump, size=(width, height))
         return 0
 
-    caps = caps_mod.detect(is_tty=sys.stdout.isatty())
+    choice = resolve_renderer_choice(args)
+    caps = caps_mod.detect(is_tty=sys.stdout.isatty(),
+                           probe_graphics=choice is None)
     if not caps.is_tty:
         print("specterm1d needs a terminal; stdout is not a tty.", file=sys.stderr)
         return 1
 
-    renderer = caps_mod.choose_renderer(caps, override=resolve_renderer_choice(args),
-                                        out=sys.stdout)
+    renderer = caps_mod.choose_renderer(caps, override=choice, out=sys.stdout)
     width, height = renderer.target_pixels(caps.rows - 2, caps.cols)
     plot = SpectrumPlot(width, height)
     renderer = attach_or_fall_back(renderer, plot, caps, out=sys.stdout)
