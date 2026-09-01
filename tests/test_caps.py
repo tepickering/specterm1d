@@ -111,6 +111,82 @@ def test_kitty_is_not_probed_under_tmux():
     assert c.kitty is False
 
 
+def sixel_da():
+    """A Primary Device Attributes reply advertising sixel."""
+    return fake_query({"\x1b[c": "\x1b[?1;2;4c"})
+
+
+def test_sixel_is_trusted_outside_tmux():
+    c = detect(env={}, is_tty=True, size_fn=fake_size(), query_fn=sixel_da())
+    assert c.sixel is True
+
+
+def test_tmuxs_own_sixel_attribute_is_not_trusted():
+    # tmux answers attribute 4 whenever it was built --enable-sixel, with no
+    # client attached at all, so inside tmux the reply says nothing about
+    # whether an image would reach the screen. It does not here: tmux draws
+    # what it cannot pass on as a placeholder padded out with plus signs.
+    c = detect(env={"TMUX": "/tmp/tmux-501/default,1,0"}, is_tty=True,
+               size_fn=fake_size(), query_fn=sixel_da(),
+               features_fn=lambda: "bpaste,ccolour,clipboard,cstyle,focus,RGB,title")
+    assert c.sixel is False
+
+
+def test_sixel_survives_tmux_when_the_client_terminal_has_it():
+    c = detect(env={"TMUX": "/tmp/tmux-501/default,1,0"}, is_tty=True,
+               size_fn=fake_size(), query_fn=sixel_da(),
+               features_fn=lambda: "bpaste,focus,RGB,sixel,title")
+    assert c.sixel is True
+
+
+def test_a_tmux_that_cannot_be_asked_gives_up_on_sixel():
+    # No tmux binary, a server that has gone away, a tmux too old for the
+    # format string: all read as "cannot", which is the safe direction.
+    c = detect(env={"TMUX": "/tmp/tmux-501/default,1,0"}, is_tty=True,
+               size_fn=fake_size(), query_fn=sixel_da(), features_fn=lambda: "")
+    assert c.sixel is False
+
+
+def test_the_feature_list_is_matched_whole():
+    c = detect(env={"TMUX": "/tmp/tmux-501/default,1,0"}, is_tty=True,
+               size_fn=fake_size(), query_fn=sixel_da(),
+               features_fn=lambda: "focus,sixel-ish,RGB")
+    assert c.sixel is False
+
+
+def test_tmux_is_not_asked_when_the_terminal_never_claimed_sixel():
+    def explode():
+        raise AssertionError("no reason to shell out to tmux")
+
+    c = detect(env={"TMUX": "/tmp/tmux-501/default,1,0"}, is_tty=True,
+               size_fn=fake_size(), query_fn=fake_query({}), features_fn=explode)
+    assert c.sixel is False
+
+
+def test_client_features_are_empty_without_a_tmux_binary(monkeypatch):
+    monkeypatch.setattr(caps_mod.shutil, "which", lambda name: None)
+    assert caps_mod.tmux_client_features() == ""
+
+
+def test_client_features_are_empty_when_tmux_fails(monkeypatch):
+    class Failed:
+        returncode = 1
+        stdout = "no server running"
+
+    monkeypatch.setattr(caps_mod.shutil, "which", lambda name: "/usr/bin/tmux")
+    monkeypatch.setattr(caps_mod.subprocess, "run", lambda *a, **k: Failed())
+    assert caps_mod.tmux_client_features() == ""
+
+
+def test_client_features_survive_a_hung_tmux(monkeypatch):
+    def hang(*args, **kwargs):
+        raise caps_mod.subprocess.TimeoutExpired(cmd="tmux", timeout=1.0)
+
+    monkeypatch.setattr(caps_mod.shutil, "which", lambda name: "/usr/bin/tmux")
+    monkeypatch.setattr(caps_mod.subprocess, "run", hang)
+    assert caps_mod.tmux_client_features() == ""
+
+
 def test_iterm2_detected_from_term_program():
     c = detect(env={"TERM_PROGRAM": "iTerm.app"}, is_tty=True,
                size_fn=fake_size(), query_fn=fake_query({}))

@@ -10,7 +10,9 @@ import fcntl
 import os
 import re
 import select
+import shutil
 import struct
+import subprocess
 import sys
 import termios
 import time
@@ -27,6 +29,14 @@ DA_QUERY = "\x1b[c"
 # - ghostty and the sixel terminals among them - cannot be told apart from the
 # ones that do not by anything in the environment.
 PIXEL_MOUSE_QUERY = "\x1b[?1016$p"
+
+# Inside tmux the Primary Device Attributes describe tmux, not the terminal
+# you are looking at: a build with --enable-sixel answers attribute 4 with no
+# client attached at all. tmux then draws any sixel it cannot pass on to its
+# client as a placeholder - "SIXEL IMAGE (134x44)" padded out with '+' until
+# it fills the window - so trusting that bit produces a screen of plus signs
+# rather than a plot. tmux does know what its own client can do, so ask it.
+TMUX_FEATURES = ("tmux", "display", "-p", "#{client_termfeatures}")
 
 _DA_RE = re.compile(r"\x1b\[\?([0-9;]+)c")
 _DECRQM_RE = re.compile(r"\x1b\[\?(\d+);(\d+)\$y")
@@ -138,6 +148,23 @@ def _da_has_sixel(response: str | None) -> bool:
     return "4" in match.group(1).split(";")
 
 
+def tmux_client_features() -> str:
+    """tmux's own report of what the terminal outside it can do.
+
+    Empty on anything unexpected - no tmux binary, a server that has gone
+    away, a tmux too old for the format string - which reads as "cannot",
+    the safe direction: --renderer sixel still forces the issue.
+    """
+    if shutil.which(TMUX_FEATURES[0]) is None:
+        return ""
+    try:
+        done = subprocess.run(TMUX_FEATURES, capture_output=True, text=True,
+                              timeout=1.0, check=False)
+    except Exception:
+        return ""
+    return done.stdout.strip() if done.returncode == 0 else ""
+
+
 def _decrqm_supported(response: str | None, mode: int) -> bool:
     """Whether a DECRQM reply says the terminal implements ``mode``."""
     if not response:
@@ -149,7 +176,8 @@ def _decrqm_supported(response: str | None, mode: int) -> bool:
 
 
 def detect(env: dict | None = None, query_fn: Callable | None = None,
-           size_fn: Callable | None = None, is_tty: bool = True) -> TerminalCaps:
+           size_fn: Callable | None = None, is_tty: bool = True,
+           features_fn: Callable | None = None) -> TerminalCaps:
     # Local: term/__init__ imports caps before gui, and probing is not on any
     # hot path.
     from specterm1d.term import gui as gui_backend
@@ -164,6 +192,7 @@ def detect(env: dict | None = None, query_fn: Callable | None = None,
     # False in production while the tests, which always inject, stay green.
     query_fn = query_fn or query
     size_fn = size_fn or window_size
+    features_fn = features_fn or tmux_client_features
     rows, cols, xpixel, ypixel = size_fn()
     # 0 means "not reported", not "zero pixels wide". Terminal.app reports 0,
     # and so may any injected size_fn, so normalize here rather than only in
@@ -189,6 +218,10 @@ def detect(env: dict | None = None, query_fn: Callable | None = None,
               or env.get("LC_TERMINAL") == "iTerm2")
 
     sixel = _da_has_sixel(query_fn(DA_QUERY) if query_fn else None)
+    if sixel and in_tmux:
+        # See TMUX_FEATURES: the attribute came from tmux, so it has to be
+        # checked against what tmux says its client can display.
+        sixel = "sixel" in features_fn().split(",")
 
     # Pixel mouse positions are a property of the terminal, not of whichever
     # graphics protocol it also happens to speak, so ask about the mode rather

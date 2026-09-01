@@ -75,8 +75,15 @@ font size. The curve ends up with more pixels than it had when matplotlib was
 spending margins on labels nobody could read.
 
 Under tmux the kitty protocol is never probed — its passthrough is unreliable
-— so tmux users get sixel where tmux was built with `--enable-sixel`, and
-halfblock otherwise.
+— and the sixel bit in the Device Attributes reply is not trusted either.
+tmux answers that bit whenever **tmux** was built with `--enable-sixel`, with
+no client attached at all; whether an image reaches the screen depends on the
+terminal outside tmux. So specterm1d asks tmux what its client can do
+(`#{client_termfeatures}`) and uses sixel only when that lists it. Otherwise
+you get the placeholder tmux draws for an image it cannot pass on —
+`SIXEL IMAGE (134x44)` padded out with `+` until it fills the window —
+instead of a plot. `--renderer sixel` forces the issue where the probe is
+too cautious.
 
 ### Two-window mode
 
