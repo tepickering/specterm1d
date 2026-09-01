@@ -1,12 +1,22 @@
 name: Release
 
-# Publishing to PyPI is irreversible: a version number, once used, can never
+# Pushing a vX.Y.Z tag is the whole release ritual: this workflow builds the
+# artefact, cuts the GitHub Release from it, and uploads to PyPI.
+#
+# Publishing to PyPI is irreversible - a version number, once used, can never
 # be reused even after the file is deleted. So the artefact is built and
-# checked once, then uploaded from that same artefact - and TestPyPI can be
-# rehearsed by hand before anything reaches the real index.
+# checked once, then both the Release and the upload draw on that same
+# artefact, and TestPyPI can be rehearsed by hand before anything reaches the
+# real index.
+#
+# There is deliberately no `release: [published]` trigger. Creating a release
+# through the web UI on a new tag fires both that and the tag push, which
+# would build and upload the same version twice; the second upload fails with
+# a file-already-exists error that says nothing useful.
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       target:
@@ -45,11 +55,52 @@ jobs:
           name: dist
           path: dist/
 
+  github_release:
+    needs: build
+    # Only the tag push cuts a Release; a manual run is for rehearsing an
+    # upload against TestPyPI, and should not touch the repository.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      # Creating the Release is a write to the repository itself.
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - name: Is this a prerelease?
+        id: kind
+        # Anything beyond a bare vX.Y.Z - v0.1.0rc1, an alpha or a beta - is
+        # a prerelease, so it stays out of the "Latest release" slot and out
+        # of Read the Docs' `stable`, which tracks the highest full release.
+        run: |
+          # The pattern lives in a variable because an inline one is subject
+          # to the shell's own quote removal before the match sees it.
+          release='^v[0-9]+(\.[0-9]+)*$'
+          if [[ "$GITHUB_REF_NAME" =~ $release ]]; then
+            pre=false
+          else
+            pre=true
+          fi
+          echo "$GITHUB_REF_NAME prerelease=$pre"
+          echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
+      - name: Create the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{ steps.kind.outputs.prerelease }}
+          # Release notes come from the merged pull requests since the last
+          # tag, which is what the commit history here already reads as.
+          generate_release_notes: true
+          files: dist/*
+
   publish:
     needs: build
     runs-on: ubuntu-latest
     # Trusted publishing: PyPI verifies this workflow's OIDC identity, so
-    # there is no API token to store or leak.
+    # there is no API token to store or leak. The `pypi` environment carries
+    # the required-reviewer rule, so a tag push queues the upload rather than
+    # firing it - the GitHub Release lands either way.
     environment: ${{ github.event.inputs.target || 'pypi' }}
     permissions:
       id-token: write
