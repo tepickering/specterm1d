@@ -41,6 +41,11 @@ TMUX_CLIENT_FEATURES = ("display", "-p", "#{client_termfeatures}")
 TMUX_CLIENT_TERM = ("display", "-p", "#{client_termname}")
 TMUX_PASSTHROUGH_OPTION = ("show", "-gv", "allow-passthrough")
 
+# A terminal on the far side of an ssh connection cannot read a file this
+# process writes, which is what rules out handing kitty a path instead of
+# 700 KB of base64 per frame.
+SSH_VARS = ("SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY")
+
 # Terminals whose kitty-graphics support can be recognised from the terminal
 # name tmux reports for its client. WezTerm is missing on purpose: it usually
 # presents as xterm-256color, which proves nothing.
@@ -95,6 +100,8 @@ class TerminalCaps:
     pixel_mouse: bool = False
     # Running under tmux, so graphics escapes need the passthrough wrapper.
     tmux: bool = False
+    # The terminal is on this machine, so it can read files we write.
+    local: bool = True
 
 
 def register_renderer(name: str, factory: Callable) -> None:
@@ -156,6 +163,17 @@ def _da_has_sixel(response: str | None) -> bool:
     if not match:
         return False
     return "4" in match.group(1).split(";")
+
+
+def terminal_is_local(env: dict | None = None) -> bool:
+    """Whether the terminal is running on this machine.
+
+    An ssh session is the case where it is not, and the standard tell is the
+    environment ssh sets. Wrong only in exotic setups, and wrong in the
+    harmless direction: a false negative just means the slower transport.
+    """
+    env = os.environ if env is None else env
+    return not any(env.get(name) for name in SSH_VARS)
 
 
 def tmux_query(*args: str) -> str:
@@ -274,7 +292,7 @@ def detect(env: dict | None = None, query_fn: Callable | None = None,
         kitty=kitty, iterm2=iterm2, sixel=sixel, truecolor=truecolor,
         rows=rows, cols=cols, pixel_width=xpixel, pixel_height=ypixel,
         is_tty=True, gui=gui_backend.available(env), pixel_mouse=pixel_mouse,
-        tmux=in_tmux,
+        tmux=in_tmux, local=terminal_is_local(env),
     )
 
 

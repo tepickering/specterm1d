@@ -123,6 +123,91 @@ def test_the_teardown_delete_is_wrapped_too():
     assert "a=d" in out.getvalue()
 
 
+# ---- frames by file, for tmux --------------------------------------
+
+def test_a_tmux_frame_goes_by_path_not_by_base64(tmp_path):
+    out = io.StringIO()
+    renderer = KittyRenderer(out, _tmux_caps(), tmpdir=tmp_path)
+    renderer.draw(_rgba(64, 64), CellRect(row=0, col=0, rows=4, cols=8))
+    text = out.getvalue()
+
+    assert "t=f" in text
+    written = list(tmp_path.glob("*.png"))
+    assert len(written) == 1
+    assert written[0].read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+    # The path travels base64-encoded, like every other payload in the protocol.
+    assert base64.b64encode(str(written[0]).encode()).decode() in text
+
+
+def test_the_file_route_is_one_escape_where_inline_would_be_many(tmp_path):
+    rgba = _rgba(400, 400, value=17)
+    rect = CellRect(row=0, col=0, rows=20, cols=40)
+    inline = io.StringIO()
+    KittyRenderer(inline, _tmux_caps(local=False)).draw(rgba, rect)
+    byfile = io.StringIO()
+    KittyRenderer(byfile, _tmux_caps(), tmpdir=tmp_path).draw(rgba, rect)
+
+    assert inline.getvalue().count("a=T") == 1     # one image, many chunks
+    assert inline.getvalue().count("\x1bPtmux;") > 1
+    assert byfile.getvalue().count("a=T") == 1
+    assert len(byfile.getvalue()) < len(inline.getvalue()) / 10
+
+
+def test_old_frames_are_retired_but_the_last_two_are_kept(tmp_path):
+    # The terminal reads a frame when it reaches the escape, not when it is
+    # written, so the frame just drawn must still be on disk.
+    renderer = KittyRenderer(io.StringIO(), _tmux_caps(), tmpdir=tmp_path)
+    rect = CellRect(row=0, col=0, rows=4, cols=8)
+    for _ in range(5):
+        renderer.draw(_rgba(64, 64), rect)
+    assert len(list(tmp_path.glob("*.png"))) == 2
+
+
+def test_teardown_takes_the_frame_files_with_it(tmp_path):
+    renderer = KittyRenderer(io.StringIO(), _tmux_caps(), tmpdir=tmp_path)
+    renderer.draw(_rgba(64, 64), CellRect(row=0, col=0, rows=4, cols=8))
+    renderer.teardown()
+    assert list(tmp_path.glob("*.png")) == []
+
+
+def test_ssh_keeps_the_inline_path(tmp_path):
+    # A terminal on the other end of an ssh connection cannot read the file.
+    out = io.StringIO()
+    KittyRenderer(out, _tmux_caps(local=False), tmpdir=tmp_path).draw(
+        _rgba(64, 64), CellRect(row=0, col=0, rows=4, cols=8))
+    assert "t=f" not in out.getvalue()
+    assert list(tmp_path.glob("*.png")) == []
+
+
+def test_no_tmux_no_files(tmp_path):
+    # Direct transmission is already fluid when tmux is not in the way.
+    out = io.StringIO()
+    KittyRenderer(out, _caps(), tmpdir=tmp_path).draw(
+        _rgba(64, 64), CellRect(row=0, col=0, rows=4, cols=8))
+    assert "t=f" not in out.getvalue()
+    assert list(tmp_path.glob("*.png")) == []
+
+
+def test_an_unwritable_directory_falls_back_for_good(tmp_path):
+    unwritable = tmp_path / "nope"
+    renderer = KittyRenderer(io.StringIO(), _tmux_caps(), tmpdir=unwritable)
+    rect = CellRect(row=0, col=0, rows=4, cols=8)
+    renderer.draw(_rgba(64, 64), rect)
+    assert renderer.by_file is False
+    out = io.StringIO()
+    renderer.out = out
+    renderer.draw(_rgba(64, 64), rect)
+    assert "\x1b\x1b_G" in out.getvalue()   # inline, through the wrapper
+
+
+def test_the_file_escape_carries_the_placement_geometry(tmp_path):
+    from specterm1d.term.kitty import kitty_file_chunk
+
+    escape = kitty_file_chunk(tmp_path / "f.png", image_id=7, cols=40, rows=12)
+    assert escape.startswith("\x1b_Ga=T,f=100,t=f,i=7,p=1,q=2,c=40,r=12;")
+    assert escape.endswith("\x1b\\")
+
+
 def test_kitty_target_pixels_uses_the_window_pixel_size():
     renderer = KittyRenderer(io.StringIO(), _caps(rows=24, cols=80, xp=800, yp=480))
     # 24 rows tall window, asking for the 22-row plot area.

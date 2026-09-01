@@ -19,6 +19,24 @@ def fake_size(rows=50, cols=200, xp=1600, yp=850):
     return lambda: (rows, cols, xp, yp)
 
 
+def sixel_da():
+    """A Primary Device Attributes reply advertising sixel."""
+    return fake_query({"\x1b[c": "\x1b[?1;2;4c"})
+
+
+def fake_tmux(answers):
+    """tmux_fn stub: keyed on the last argument of the tmux command.
+
+    Every test that sets TMUX must pass one of these: without it detect()
+    shells out to whatever tmux server is really running.
+    """
+    return lambda *args: answers.get(args[-1], "")
+
+
+TMUX = "/tmp/tmux-501/default,1,0"
+NO_SIXEL = "bpaste,ccolour,clipboard,cstyle,focus,RGB,title"
+
+
 def test_non_tty_reports_no_capabilities():
     c = detect(env={}, is_tty=False)
     assert c.is_tty is False
@@ -98,31 +116,11 @@ def test_pixel_mouse_needs_the_terminal_to_report_pixels():
 
 
 def test_pixel_mouse_stays_off_under_tmux():
-    c = detect(env={"TMUX": "/tmp/tmux-501/default,1,0"}, is_tty=True,
-               size_fn=fake_size(), query_fn=decrqm("2"))
+    # tmux has no SGR-Pixels: asked about mode 1016 it answers Ps=0, "never
+    # heard of it", and the mouse reports it forwards are in cells.
+    c = detect(env={"TMUX": TMUX}, is_tty=True, size_fn=fake_size(),
+               query_fn=decrqm("2"), tmux_fn=fake_tmux({}))
     assert c.pixel_mouse is False
-
-
-def test_kitty_is_not_probed_under_tmux():
-    # kitty graphics passthrough through tmux is unreliable.
-    c = detect(env={"TMUX": "/tmp/tmux-501/default,1,0", "TERM": "xterm-kitty"},
-               is_tty=True, size_fn=fake_size(),
-               query_fn=fake_query({"\x1b_G": "\x1b_Gi=31;OK\x1b\\"}))
-    assert c.kitty is False
-
-
-def sixel_da():
-    """A Primary Device Attributes reply advertising sixel."""
-    return fake_query({"\x1b[c": "\x1b[?1;2;4c"})
-
-
-def fake_tmux(answers):
-    """tmux_fn stub: keyed on the last argument of the tmux command."""
-    return lambda *args: answers.get(args[-1], "")
-
-
-TMUX = "/tmp/tmux-501/default,1,0"
-NO_SIXEL = "bpaste,ccolour,clipboard,cstyle,focus,RGB,title"
 
 
 def test_sixel_is_trusted_outside_tmux():

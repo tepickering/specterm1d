@@ -86,10 +86,23 @@ set -g allow-passthrough on
 Every graphics escape is then wrapped in tmux's DCS passthrough and handed to
 the terminal outside; without the option tmux discards them and you get a
 window or the text backend. An unwrapped APC is worse than useless there —
-tmux eats the introducer and prints the payload into your status line. Note
-that tmux does not know an image is present, so a pane repaint (a resize, a
-pane switch, leaving copy mode) blanks the plot until the next keystroke
-redraws it.
+tmux eats the introducer and prints the payload into your status line.
+
+Through tmux the frame itself travels by file rather than inline: a 1920x1216
+pane is 720 KB of base64, which the inline path splits into 180 separate
+passthrough sequences for tmux to parse and re-emit one after another,
+interleaved with its own screen updates. Handing kitty a path instead is 81
+bytes. That needs the terminal to be on this machine, so over ssh the inline
+path stays.
+
+Two things tmux costs you regardless. It does not know an image is present, so
+a pane repaint (a resize, a pane switch, leaving copy mode) blanks the plot
+until the next keystroke redraws it. And it has no SGR-Pixels mouse mode —
+asked about DECSET 1016 it answers "never heard of it" — so under tmux the
+pointer resolves to a cell rather than a pixel. Arrow keys move the cursor by
+0.2% of the visible range (5% with shift), which is finer than a cell, so the
+usual way to place a continuum level precisely is to click near it and then
+nudge.
 
 **The sixel bit in the Device Attributes reply describes tmux**, which
 answers it whenever **tmux** was built with `--enable-sixel`, with no client
