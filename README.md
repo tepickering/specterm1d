@@ -129,7 +129,7 @@ too cautious.
 ### Two-window mode
 
 Terminals with no inline-graphics protocol get a real matplotlib window
-instead of half-block cells. This is what IRAF `splot` did on a
+instead of block glyphs. This is what IRAF `splot` did on a
 Tektronix-emulating terminal like `xgterm`: **you point at a feature in the
 graphics window and press a key**, while prompts and measurement results
 scroll past in the text terminal.
@@ -148,11 +148,11 @@ Every binding means the same thing in both modes; that is the point.
 | xterm with sixel | sixel, inline |
 | Terminal.app, GNOME Terminal, Alacritty | graphics window |
 | xterm on Linux with X11 | graphics window |
-| ssh with no display, tmux over ssh | half-block |
+| ssh with no display, tmux over ssh | text |
 
 Inline graphics still win where the terminal supports them — one window beats
-two — with iTerm2 the one exception. Half-block is the last resort: correct
-everywhere, comfortable nowhere.
+two — with iTerm2 the one exception. The text backend is the last resort:
+correct everywhere, comfortable nowhere.
 
 ### Why iTerm2 gets a window
 
@@ -183,8 +183,8 @@ specterm1d --renderer text spec1d.fits
 
 The window opens at 1200x800 and is then yours to resize; resizing re-renders
 at the new size. If no window can be opened — no `DISPLAY`, no usable
-toolkit — specterm1d prints one line to stderr and falls back to half-block
-rather than refusing to start.
+toolkit — specterm1d prints one line to stderr and falls back to the text
+backend rather than refusing to start.
 
 ## Keys
 
