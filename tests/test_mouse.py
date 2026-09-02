@@ -270,3 +270,51 @@ def test_the_text_backend_keeps_cell_coordinates_even_where_1016_is_offered():
     session.set_mouse(True)
 
     assert "\x1b[?1000;1002;1006h" in out.getvalue()
+
+
+# ---- log axes ----------------------------------------------------------
+
+def test_a_click_on_a_log_axis_lands_where_the_chrome_drew_the_tick():
+    """The two ends of the same mapping, checked against each other.
+
+    The chrome puts a tick label in a cell; clicking that cell has to give
+    back the value it labels. A linear mapping on one side and a log one on
+    the other would look right on screen and silently misplace every
+    measurement.
+    """
+    import numpy as np
+
+    from specterm1d.term.chrome import _cell_for
+
+    session, _ = make_session()
+    if not session.text_chrome:
+        pytest.skip("renderer draws its own chrome")
+
+    session.view.xscale = "log"
+    session.view.xlim = (1.0, 10000.0)
+    layout = session.chrome_layout()
+    values, _ = session.x_ticks(layout.plot.cols)
+    assert len(values) > 1
+
+    decades_per_cell = 4.0 / layout.plot.cols
+    for value in values:
+        col = _cell_for(value, 1.0, 10000.0, layout.plot.col, layout.plot.cols,
+                        log=True)
+        session.view.cursor_x = None
+        session.on_mouse(col=col + 1, row=layout.plot.row + 2)
+        assert session.view.cursor_x is not None
+        assert abs(np.log10(session.view.cursor_x) - np.log10(value)) \
+            <= decades_per_cell
+
+
+def test_a_click_on_a_log_y_axis_reads_off_the_decades():
+    session, _ = make_session()
+    if not session.text_chrome:
+        pytest.skip("renderer draws its own chrome")
+
+    session.view.yscale = "log"
+    session.view.ylim = (1.0, 100.0)
+    rect = session.plot_rect()
+    # Halfway up the plot is the geometric middle of the window.
+    session.on_mouse(col=rect.col + 2, row=rect.row + rect.rows // 2 + 1)
+    assert session.view.cursor_y == pytest.approx(10.0, rel=0.25)

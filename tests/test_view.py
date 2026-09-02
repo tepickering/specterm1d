@@ -224,3 +224,77 @@ def test_following_a_cursor_off_the_spectrum_leaves_y_alone():
     view.cursor_x = None
     view.follow_flux()
     assert view.cursor_y == pytest.approx(before)
+
+
+# ---- log axes ----------------------------------------------------------
+
+def make_log_collection(npix=100):
+    """A spectrum spanning four decades, with negative sky-subtracted noise."""
+    wave = np.linspace(5000.0, 6000.0, npix)
+    flux = np.logspace(0.0, 4.0, npix)
+    flux[:5] = -1.0
+    spec = build_spec(wave, flux, require_positive=False)
+    return SpecCollection(entries=[SpecEntry("OBJ", {"OPT/COUNTS": spec},
+                                             "OPT/COUNTS")])
+
+
+def test_to_request_carries_the_axis_scales():
+    view = ViewState(make_log_collection())
+    view.reset_limits()
+    view.xscale, view.yscale = "log", "log"
+    request = view.to_request()
+    assert request.xscale == "log"
+    assert request.yscale == "log"
+
+
+def test_reset_limits_autoscales_a_log_axis_over_positive_flux_only():
+    view = ViewState(make_log_collection())
+    view.yscale = "log"
+    view.reset_limits()
+    assert view.ylim[0] > 0
+    assert view.yscale == "log"
+
+
+def test_reset_limits_drops_a_log_y_axis_the_spectrum_cannot_support():
+    # Moving to an entirely non-positive spectrum leaves a log axis with no
+    # picture at all, so it gives way rather than blanking the plot.
+    wave = np.linspace(5000.0, 6000.0, 50)
+    spec = build_spec(wave, np.full(50, -3.0), require_positive=False)
+    view = ViewState(SpecCollection(entries=[
+        SpecEntry("OBJ", {"OPT/COUNTS": spec}, "OPT/COUNTS")]))
+    view.yscale = "log"
+    view.reset_limits()
+    assert view.yscale == "linear"
+    assert view.ylim[1] > view.ylim[0]
+
+
+def test_rescale_y_keeps_its_limits_where_a_window_has_no_positive_flux():
+    # Panning onto an all-negative stretch is temporary; reverting the scale
+    # here would mean panning back could not restore it.
+    view = ViewState(make_log_collection())
+    view.yscale = "log"
+    view.reset_limits()
+    before = view.ylim
+    view.xlim = (5000.0, 5020.0)      # the negative pixels at the blue end
+    view.rescale_y()
+    assert view.ylim == before
+    assert view.yscale == "log"
+
+
+def test_reset_limits_floors_a_log_x_window():
+    from specterm1d.plot import LOG_DECADES
+
+    wave = np.linspace(0.0, 1000.0, 100)
+    spec = build_spec(wave, np.full(100, 1.0), require_positive=False)
+    view = ViewState(SpecCollection(entries=[
+        SpecEntry("OBJ", {"OPT/COUNTS": spec}, "OPT/COUNTS")]))
+    view.xscale = "log"
+    view.reset_limits()
+    assert view.xlim[0] == pytest.approx(view.xlim[1] / 10 ** LOG_DECADES)
+
+
+def test_xlog_and_ylog_read_the_scale_names():
+    view = ViewState(make_log_collection())
+    assert not view.xlog and not view.ylog
+    view.yscale = "log"
+    assert view.ylog and not view.xlog

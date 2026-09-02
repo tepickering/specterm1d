@@ -9,6 +9,7 @@ from __future__ import annotations
 import astropy.units as u
 
 from specterm1d.keymap import command
+from specterm1d.plot import autoscale, log_floor
 
 _TRUE = {"yes", "y", "true", "on", "1", "+"}
 _FALSE = {"no", "n", "false", "off", "0", "-"}
@@ -37,6 +38,9 @@ def _boolean(args: list[str], current: bool) -> bool:
 
 def _view_toggle(field: str, label: str):
     def handler(session, args):
+        if field == "zero_base" and session.view.ylog:
+            session.message("zero base has no meaning on a log y axis")
+            return
         current = getattr(session.view, field)
         new = _boolean(args, current)
         setattr(session.view, field, new)
@@ -58,6 +62,58 @@ def _overlay_toggle(name: str):
                 session.message(f"{name} overlay on (not present in this file)")
             else:
                 session.message(f"{name} overlay on")
+    return handler
+
+
+def _cmd_scale(axis: str, scale: str):
+    """:logx / :logy / :linx / :liny.
+
+    Four verbs rather than two toggles: on a spectrum where half the windows
+    have no positive flux the switch sometimes refuses, and a toggle whose
+    result you cannot predict is worse than saying which one you want.
+
+    The log cases check first and decline rather than switching into an empty
+    plot - matplotlib would happily draw the axis with nothing under it.
+    """
+    def handler(session, args):
+        view = session.view
+        current = view.xscale if axis == "x" else view.yscale
+        if scale == current:
+            session.message(f"{scale} {axis} already")
+            return
+
+        note = ""
+        if scale == "log" and axis == "x":
+            lo, hi = view.xlim
+            if hi <= 0:
+                session.message("no positive values on the dispersion axis; "
+                                "x stays linear")
+                return
+            view.xscale = "log"
+            view.xlim = (log_floor(lo, hi), hi)
+            view.rescale_y()      # the floor may have narrowed the window
+        elif scale == "log":
+            limits = autoscale(view.display_spec(), view.xlim,
+                               zero_base=view.zero_base, log=True)
+            if limits is None:
+                session.message("no positive flux in view; y stays linear")
+                return
+            view.yscale = "log"
+            view.ylim = limits
+            if view.zero_base:
+                # Zero is not a place on a log axis, so the flag cannot mean
+                # anything while one is up; dropping it silently would leave
+                # the status line claiming a base that is not being drawn.
+                view.zero_base = False
+                note = " (zero base off)"
+        elif axis == "x":
+            view.xscale = "linear"
+        else:
+            view.yscale = "linear"
+            view.rescale_y()
+
+        session.message(f"{'log' if scale == 'log' else 'linear'} "
+                        f"{axis} axis{note}")
     return handler
 
 
@@ -132,6 +188,10 @@ def _cmd_not_applicable(name: str):
 COLON_COMMANDS = {
     "log": _cmd_log,
     "nolog": _cmd_nolog,
+    "logx": _cmd_scale("x", "log"),
+    "logy": _cmd_scale("y", "log"),
+    "linx": _cmd_scale("x", "linear"),
+    "liny": _cmd_scale("y", "linear"),
     "show": _cmd_show,
     "units": _cmd_units,
     "#": _cmd_comment,

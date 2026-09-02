@@ -20,7 +20,7 @@ import numpy as np
 
 from specterm1d import keymap, theme
 from specterm1d.logfile import SplotLog
-from specterm1d.plot import SpectrumPlot, tick_values
+from specterm1d.plot import SpectrumPlot, from_frac, tick_values, to_frac
 from specterm1d.spec import SpecCollection
 from specterm1d.term.base import CellRect, Motion
 from specterm1d.term.caps import TerminalCaps
@@ -162,8 +162,8 @@ class Session:
         ty = (frac_y - bbox.y0) / (bbox.y1 - bbox.y0)
         xlo, xhi = self.view.xlim
         ylo, yhi = self.view.ylim
-        self.view.cursor_x = float(xlo + tx * (xhi - xlo))
-        self.view.cursor_y = float(ylo + ty * (yhi - ylo))
+        self.view.cursor_x = from_frac(tx, xlo, xhi, self.view.xlog)
+        self.view.cursor_y = from_frac(ty, ylo, yhi, self.view.ylog)
         self.view.lock_cursor_y()
 
     def on_motion(self, x: float, y: float) -> None:
@@ -214,11 +214,11 @@ class Session:
 
     def y_ticks(self, rows: int):
         n = int(np.clip(rows // 5, 2, 6))
-        return tick_values(*self.view.ylim, n)
+        return tick_values(*self.view.ylim, n, log=self.view.ylog)
 
     def x_ticks(self, cols: int):
         n = int(np.clip(cols // 14, 2, 8))
-        return tick_values(*self.view.xlim, n)
+        return tick_values(*self.view.xlim, n, log=self.view.xlog)
 
     def plot_rect(self) -> CellRect:
         if not self.text_chrome:
@@ -337,6 +337,7 @@ class Session:
             legend=[(name, overlay[i % len(overlay)])
                     for i, name in enumerate(sorted(self.view.overlays))],
             truecolor=self.caps.truecolor,
+            xlog=self.view.xlog, ylog=self.view.ylog,
         )
         if text != self._chrome_cache:
             self.out.write(text)
@@ -426,6 +427,8 @@ class Session:
             "H" if view.histogram else "",
             "Z" if view.zero_base else "",
             "F" if view.flip else "",
+            "Lx" if view.xlog else "",
+            "Ly" if view.ylog else "",
         ])
         cursor_y = "-" if view.cursor_y is None else f"{view.cursor_y:.4g}"
         parts = [
@@ -451,17 +454,22 @@ class Session:
     # ---- dispatch ---------------------------------------------------
 
     def move_cursor(self, fraction: float) -> None:
+        # Stepped as a fraction of the axis, not of the value range: on a log
+        # axis an arrow key should cover the same distance on screen at either
+        # end of the window, which a fixed step in data units does not.
         lo, hi = self.view.xlim
-        step = (hi - lo) * fraction
         current = self.view.cursor_x if self.view.cursor_x is not None else lo
-        self.view.cursor_x = float(np.clip(current + step, lo, hi))
+        moved = from_frac(to_frac(current, lo, hi, self.view.xlog) + fraction,
+                          lo, hi, self.view.xlog)
+        self.view.cursor_x = float(np.clip(moved, lo, hi))
         self.view.follow_flux()
 
     def move_cursor_y(self, fraction: float) -> None:
         lo, hi = self.view.ylim
-        step = (hi - lo) * fraction
         current = self.view.cursor_y if self.view.cursor_y is not None else lo
-        self.view.cursor_y = float(np.clip(current + step, lo, hi))
+        moved = from_frac(to_frac(current, lo, hi, self.view.ylog) + fraction,
+                          lo, hi, self.view.ylog)
+        self.view.cursor_y = float(np.clip(moved, lo, hi))
         self.view.lock_cursor_y()
 
     def handle(self, key: Key) -> bool:

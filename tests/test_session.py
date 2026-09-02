@@ -312,3 +312,12 @@ def test_an_idle_timeout_between_keypresses_redraws_only_for_the_keys(
                              [[], [Key("right")], [], [], [Key("right")],
                               [Key("char", "q")]])
     assert len(renders) == 3
+
+
+def test_the_status_line_flags_a_logarithmic_axis():
+    session, _ = make_session()
+    assert "Ly" not in session.status_line()
+    session.view.yscale = "log"
+    session.view.xscale = "log"
+    line = session.status_line()
+    assert "Lx" in line and "Ly" in line
