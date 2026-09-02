@@ -393,3 +393,26 @@ def test_inline_graphics_request_a_crosshair_cursor():
 
     assert requests[-1].cursor == (5500.0, 1.25)
     assert requests[-1].cursor_crosshair is True
+
+
+# ---- log axes ------------------------------------------------------
+
+def test_the_gui_figure_gets_the_log_scale():
+    session, _, _ = make_gui_session()
+    session.view.yscale = "log"
+    session.render()
+    assert session.plot.ax.get_yscale() == "log"
+
+
+def test_a_pointer_position_needs_no_log_correction():
+    """matplotlib hands back data coordinates, whatever the scale.
+
+    The terminal backends compute the cursor from a cell index and have to
+    undo the axis transform themselves; a motion event has already been
+    through the inverse, so this path must not undo it a second time.
+    """
+    session, _, _ = make_gui_session()
+    session.view.yscale = "log"
+    session.view.ylim = (1.0, 100.0)
+    session.on_motion(5500.0, 10.0)
+    assert session.view.cursor_y == pytest.approx(10.0)

@@ -396,3 +396,66 @@ def test_show_on_an_empty_log_says_so():
     session.handle(Key("enter"))
     session.render()
     assert "no measurements recorded yet" in out.getvalue()
+
+
+# ---- log axes ----------------------------------------------------------
+
+def _log_x_session():
+    """A session windowed over four decades of dispersion, x on a log axis."""
+    session, _ = make_session()
+    session.view.xscale = "log"
+    session.view.xlim = (1.0, 10000.0)
+    session.view.ylim = (0.0, 1.0)
+    session.view.cursor_x = 100.0
+    return session
+
+
+def test_zoom_on_a_log_axis_halves_the_decades_shown():
+    # A factor-of-two zoom is two decades out of four, centred on the cursor,
+    # not a linear quarter of the range at either end.
+    session = _log_x_session()
+    session.handle(Key("char", "z"))
+    lo, hi = session.view.xlim
+    assert np.log10(hi / lo) == pytest.approx(2.0)
+    assert np.sqrt(lo * hi) == pytest.approx(100.0)
+
+
+def test_panning_a_log_axis_cannot_reach_zero():
+    # In linear arithmetic a 25% shift left of a window starting at 1.0 with a
+    # span of 9999 puts the lower limit far below zero, which a log axis
+    # cannot draw at all.
+    session = _log_x_session()
+    session.handle(Key("char", ","))
+    assert session.view.xlim[0] > 0
+
+
+def test_a_shift_moves_a_log_window_by_a_constant_factor():
+    session = _log_x_session()
+    before = session.view.xlim
+    session.handle(Key("char", "."))
+    after = session.view.xlim
+    assert after[0] / before[0] == pytest.approx(after[1] / before[1])
+
+
+def test_the_window_submode_centres_a_log_axis_geometrically():
+    session = _log_x_session()
+    session.handle(Key("char", "w"))
+    session.handle(Key("char", "c"))
+    lo, hi = session.view.xlim
+    assert np.sqrt(lo * hi) == pytest.approx(100.0)
+    assert np.log10(hi / lo) == pytest.approx(4.0)      # the span is kept
+
+
+def test_the_window_submode_pans_a_log_axis_without_reaching_zero():
+    session = _log_x_session()
+    session.handle(Key("char", "w"))
+    session.handle(Key("char", "l"))
+    assert session.view.xlim[0] > 0
+
+
+def test_linear_zoom_is_unchanged_by_the_fraction_rewrite():
+    session, _ = make_session()
+    session.view.xlim = (5000.0, 6000.0)
+    session.view.cursor_x = 5400.0
+    session.handle(Key("char", "z"))
+    assert session.view.xlim == pytest.approx((5150.0, 5650.0))

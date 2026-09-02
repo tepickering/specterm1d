@@ -17,6 +17,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from specterm1d import theme
+from specterm1d.plot import to_frac
 from specterm1d.term.base import CellRect
 
 V_SPINE = "│"
@@ -75,11 +76,11 @@ def layout_for(outer: CellRect, ylabels: Sequence[str],
 
 
 def _cell_for(value: float, lo: float, hi: float, start: int, size: int,
-              invert: bool = False) -> int:
+              invert: bool = False, log: bool = False) -> int:
     """Map a data value onto a cell index inside ``[start, start + size)``."""
     if hi <= lo or size <= 1:
         return start
-    frac = (value - lo) / (hi - lo)
+    frac = to_frac(value, lo, hi, log)
     if invert:
         frac = 1.0 - frac
     return start + round(frac * (size - 1))
@@ -129,7 +130,8 @@ def render_chrome(layout: ChromeLayout, xlim: tuple[float, float],
                   ylim: tuple[float, float], xticks: Ticks, yticks: Ticks,
                   title: str = "", legend: Sequence[tuple[str, str]] = (),
                   xlabel: str = "", ylabel: str = "",
-                  truecolor: bool = True) -> str:
+                  truecolor: bool = True,
+                  xlog: bool = False, ylog: bool = False) -> str:
     """Escape sequences drawing the decoration around ``layout.plot``."""
     plot = layout.plot
     right_edge = layout.outer.col + layout.outer.cols
@@ -181,7 +183,8 @@ def render_chrome(layout: ChromeLayout, xlim: tuple[float, float],
     spine_col = plot.col - 1
     yvalues, ylabels = yticks
     tick_rows = {
-        _cell_for(value, ylim[0], ylim[1], plot.row, plot.rows, invert=True): text
+        _cell_for(value, ylim[0], ylim[1], plot.row, plot.rows, invert=True,
+                  log=ylog): text
         for value, text in zip(yvalues, ylabels, strict=True)
     }
     for row in range(plot.row, plot.row + plot.rows):
@@ -198,7 +201,8 @@ def render_chrome(layout: ChromeLayout, xlim: tuple[float, float],
     # ---- bottom spine, with a tick mark under each x tick ----
     if layout.axis_row < layout.outer.row + layout.outer.rows:
         xvalues, xlabels = xticks
-        columns = [_cell_for(value, xlim[0], xlim[1], plot.col, plot.cols)
+        columns = [_cell_for(value, xlim[0], xlim[1], plot.col, plot.cols,
+                             log=xlog)
                    for value in xvalues]
         axis = [H_SPINE] * plot.cols
         for col in columns:

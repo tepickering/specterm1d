@@ -128,3 +128,103 @@ def test_dispaxis_reports_that_it_does_not_apply():
     session, _ = make_session()
     run_colon(session, "dispaxis 2")
     assert "1D" in session.last_message or "not" in session.last_message.lower()
+
+
+# ---- log axes ----------------------------------------------------------
+
+def make_log_session():
+    """A session whose spectrum spans four decades and dips negative."""
+    import numpy as np
+
+    from specterm1d.spec import SpecCollection, SpecEntry, build_spec
+    from tests.test_session import make_session
+
+    session, out = make_session()
+    wave = np.linspace(5000.0, 6000.0, 200)
+    flux = np.logspace(0.0, 4.0, 200)
+    flux[:10] = -1.0
+    spec = build_spec(wave, flux, require_positive=False)
+    session.collection = SpecCollection(entries=[
+        SpecEntry("OBJ", {"OPT/COUNTS": spec}, "OPT/COUNTS")])
+    session.view.collection = session.collection
+    session.view.index = 0
+    session.view.reset_limits()
+    return session, out
+
+
+def test_logy_switches_the_y_axis():
+    session, _ = make_log_session()
+    run_colon(session, "logy")
+    assert session.view.yscale == "log"
+    assert session.view.ylim[0] > 0
+    assert "log y" in session.last_message
+
+
+def test_liny_goes_back_to_linear():
+    session, _ = make_log_session()
+    run_colon(session, "logy")
+    run_colon(session, "liny")
+    assert session.view.yscale == "linear"
+    assert session.view.ylim[0] < 0      # the negative pixels are back in range
+
+
+def test_logy_declines_when_no_flux_in_view_is_positive():
+    session, _ = make_log_session()
+    session.view.xlim = (5000.0, 5040.0)      # only the negative pixels
+    run_colon(session, "logy")
+    assert session.view.yscale == "linear"
+    assert "no positive flux" in session.last_message
+
+
+def test_logy_clears_zero_base():
+    # Zero has no place on a log axis; leaving the flag set would have the
+    # status line claiming a base that is not being drawn.
+    session, _ = make_log_session()
+    run_colon(session, "zero")
+    assert session.view.zero_base is True
+    run_colon(session, "logy")
+    assert session.view.zero_base is False
+    assert "zero base off" in session.last_message
+
+
+def test_zero_is_refused_while_the_y_axis_is_logarithmic():
+    session, _ = make_log_session()
+    run_colon(session, "logy")
+    run_colon(session, "zero")
+    assert session.view.zero_base is False
+    assert "no meaning" in session.last_message
+
+
+def test_the_b_key_is_refused_too():
+    from specterm1d.term.input import Key
+
+    session, _ = make_log_session()
+    run_colon(session, "logy")
+    session.handle(Key("char", "b"))
+    assert session.view.zero_base is False
+    assert "no meaning" in session.last_message
+
+
+def test_logx_floors_the_window_and_linx_leaves_it():
+    session, _ = make_log_session()
+    run_colon(session, "logx")
+    assert session.view.xscale == "log"
+    run_colon(session, "linx")
+    assert session.view.xscale == "linear"
+
+
+def test_logx_declines_on_an_axis_with_no_positive_values():
+    session, _ = make_log_session()
+    session.view.xlim = (-500.0, -100.0)
+    run_colon(session, "logx")
+    assert session.view.xscale == "linear"
+    assert "no positive values" in session.last_message
+
+
+def test_repeating_a_scale_command_says_so_rather_than_rescaling():
+    session, _ = make_log_session()
+    run_colon(session, "logy")
+    limits = session.view.ylim
+    run_colon(session, "logy")
+    assert session.view.ylim == limits
+    assert "already" in session.last_message

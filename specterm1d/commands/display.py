@@ -4,6 +4,7 @@ from __future__ import annotations
 import numpy as np
 
 from specterm1d.keymap import STATUS_HINTS, command
+from specterm1d.plot import from_frac, to_frac
 
 SHIFT_FRACTION = 0.25
 ZOOM_FACTOR = 2.0
@@ -48,6 +49,9 @@ def expand(session):
 
 @command("display.zero_base")
 def zero_base(session):
+    if session.view.ylog:
+        session.message("zero base has no meaning on a log y axis")
+        return
     session.view.zero_base = not session.view.zero_base
     session.view.rescale_y()
     session.message(f"zero base {'on' if session.view.zero_base else 'off'}")
@@ -67,13 +71,18 @@ def redraw(session):
     session.message("redrawn")
 
 
+# Zooming and panning are written as fractions of the window rather than as
+# arithmetic on the limits, so a log axis zooms by the same factor it does on
+# screen and a pan cannot walk the lower limit down through zero.
 @command("display.zoom")
 def zoom(session):
     lo, hi = session.view.xlim
-    centre = session.view.cursor_x if session.view.cursor_x is not None \
-        else (lo + hi) / 2
-    half = (hi - lo) / (2 * ZOOM_FACTOR)
-    session.view.xlim = (float(centre - half), float(centre + half))
+    log = session.view.xlog
+    centre = 0.5 if session.view.cursor_x is None \
+        else to_frac(session.view.cursor_x, lo, hi, log)
+    half = 1.0 / (2 * ZOOM_FACTOR)
+    session.view.xlim = (from_frac(centre - half, lo, hi, log),
+                         from_frac(centre + half, lo, hi, log))
     session.view.rescale_y()
     session.message(f"zoomed to {session.view.xlim[0]:.6g} - "
                     f"{session.view.xlim[1]:.6g}")
@@ -81,8 +90,10 @@ def zoom(session):
 
 def _shift(session, sign: float):
     lo, hi = session.view.xlim
-    step = (hi - lo) * SHIFT_FRACTION * sign
-    session.view.xlim = (float(lo + step), float(hi + step))
+    log = session.view.xlog
+    step = SHIFT_FRACTION * sign
+    session.view.xlim = (from_frac(step, lo, hi, log),
+                         from_frac(1.0 + step, lo, hi, log))
     session.view.rescale_y()
 
 
@@ -241,9 +252,22 @@ def _window_action(session, char):
     view = session.view
     x1, x2 = view.xlim
     y1, y2 = view.ylim
-    dx, dy = x2 - x1, y2 - y1
-    cx = view.cursor_x if view.cursor_x is not None else (x1 + x2) / 2
-    cy = view.cursor_y if view.cursor_y is not None else (y1 + y2) / 2
+
+    def fx(frac):
+        return from_frac(frac, x1, x2, view.xlog)
+
+    def fy(frac):
+        return from_frac(frac, y1, y2, view.ylog)
+
+    # The cursor as a fraction of each axis; every shift, zoom and pan below
+    # is expressed against these, so the log and linear cases are one path.
+    # Without a cursor the middle of the window is the middle on screen,
+    # which on a log axis is the geometric mean rather than the arithmetic.
+    cxf = 0.5 if view.cursor_x is None else to_frac(view.cursor_x, x1, x2,
+                                                   view.xlog)
+    cyf = 0.5 if view.cursor_y is None else to_frac(view.cursor_y, y1, y2,
+                                                   view.ylog)
+    cx, cy = fx(cxf), fy(cyf)
 
     if char == "?":
         session.showing_help = True
@@ -255,11 +279,11 @@ def _window_action(session, char):
         view.ylim = (float(cy), float(y2))
         session.message(f"bottom edge {cy:.6g}")
     elif char == "c":
-        view.xlim = (float(cx - dx / 2), float(cx + dx / 2))
-        view.ylim = (float(cy - dy / 2), float(cy + dy / 2))
+        view.xlim = (fx(cxf - 0.5), fx(cxf + 0.5))
+        view.ylim = (fy(cyf - 0.5), fy(cyf + 0.5))
         session.message("centred at cursor")
     elif char == "d":
-        view.ylim = (float(y1 - SHIFT_WINDOW * dy), float(y2 - SHIFT_WINDOW * dy))
+        view.ylim = (fy(-SHIFT_WINDOW), fy(1.0 - SHIFT_WINDOW))
         session.message("shifted down")
     elif char == "f":
         view.flip = not view.flip
@@ -274,7 +298,7 @@ def _window_action(session, char):
         view.xlim = (float(x1), float(cx))
         session.message(f"right edge {cx:.6g}")
     elif char == "l":
-        view.xlim = (float(x1 - SHIFT_WINDOW * dx), float(x2 - SHIFT_WINDOW * dx))
+        view.xlim = (fx(-SHIFT_WINDOW), fx(1.0 - SHIFT_WINDOW))
         session.message("shifted left")
     elif char == "m":
         spec = view.display_spec()
@@ -286,45 +310,52 @@ def _window_action(session, char):
         view.rescale_y()
         session.message("autoscaled y")
     elif char == "p":
-        view.xlim = (float(cx - dx), float(cx + dx))
-        view.ylim = (float(cy - dy), float(cy + dy))
+        view.xlim = (fx(cxf - 1.0), fx(cxf + 1.0))
+        view.ylim = (fy(cyf - 1.0), fy(cyf + 1.0))
         session.message("panned about cursor")
     elif char == "r":
-        view.xlim = (float(x1 + SHIFT_WINDOW * dx), float(x2 + SHIFT_WINDOW * dx))
+        view.xlim = (fx(SHIFT_WINDOW), fx(1.0 + SHIFT_WINDOW))
         session.message("shifted right")
     elif char == "t":
         view.ylim = (float(y1), float(cy))
         session.message(f"top edge {cy:.6g}")
     elif char == "u":
-        view.ylim = (float(y1 + SHIFT_WINDOW * dy), float(y2 + SHIFT_WINDOW * dy))
+        view.ylim = (fy(SHIFT_WINDOW), fy(1.0 + SHIFT_WINDOW))
         session.message("shifted up")
     elif char == "x":
-        view.xlim = (float(cx - dx / 4), float(cx + dx / 4))
+        view.xlim = (fx(cxf - 0.25), fx(cxf + 0.25))
         session.message("zoomed x")
     elif char == "y":
-        view.ylim = (float(cy - dy / 4), float(cy + dy / 4))
+        view.ylim = (fy(cyf - 0.25), fy(cyf + 0.25))
         session.message("zoomed y")
     elif char == "z":
-        view.xlim = (float(cx - dx / 4), float(cx + dx / 4))
-        view.ylim = (float(cy - dy / 4), float(cy + dy / 4))
+        view.xlim = (fx(cxf - 0.25), fx(cxf + 0.25))
+        view.ylim = (fy(cyf - 0.25), fy(cyf + 0.25))
         session.message("zoomed x and y")
     else:
         session.message(f"window: {char!r} is not a window key")
 
 
 def _window_expand(session):
-    """gtools 'e': mark two corners; each axis moves only if the marks differ."""
+    """gtools 'e': mark two corners; each axis moves only if the marks differ.
+
+    "Differ" is measured across the axis rather than in data units: near the
+    bottom of a log decade two marks a third of the window apart are a
+    vanishing difference in flux, and would be rejected as the same point.
+    """
     x1, x2 = session.view.xlim
     y1, y2 = session.view.ylim
-    dx, dy = x2 - x1, y2 - y1
+    xlog, ylog = session.view.xlog, session.view.ylog
 
     def done(sess, positions):
         (mx1, my1), (mx2, my2) = positions
         moved = []
-        if abs(mx2 - mx1) > EXPAND_TOLERANCE * abs(dx):
+        if abs(to_frac(mx2, x1, x2, xlog)
+               - to_frac(mx1, x1, x2, xlog)) > EXPAND_TOLERANCE:
             sess.view.xlim = (float(min(mx1, mx2)), float(max(mx1, mx2)))
             moved.append("x")
-        if abs(my2 - my1) > EXPAND_TOLERANCE * abs(dy):
+        if abs(to_frac(my2, y1, y2, ylog)
+               - to_frac(my1, y1, y2, ylog)) > EXPAND_TOLERANCE:
             sess.view.ylim = (float(min(my1, my2)), float(max(my1, my2)))
             moved.append("y")
         sess.message(f"expanded {' and '.join(moved)}" if moved

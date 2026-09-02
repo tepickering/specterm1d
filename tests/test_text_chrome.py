@@ -220,3 +220,92 @@ def test_a_click_lands_where_the_drawn_axis_says_it_does():
         assert session.view.cursor_x is not None
         # One cell of the visible range is the resolution the user has.
         assert abs(session.view.cursor_x - value) <= (xhi - xlo) / layout.plot.cols
+
+
+# ---- log axes ----------------------------------------------------------
+
+def test_log_tick_values_are_decades():
+    values, labels = tick_values(1e-19, 1.2e-13, 4, log=True)
+    assert len(values) >= 2
+    assert all(np.log10(v) == pytest.approx(round(np.log10(v))) for v in values)
+    assert labels[0] == "1e-19"
+
+
+def test_log_tick_values_fall_back_inside_a_single_decade():
+    # No whole decade lies in 3e-14 .. 9e-14, and a locator that returned
+    # nothing would leave the terminal's y gutter blank.
+    values, labels = tick_values(3e-14, 9e-14, 4, log=True)
+    assert len(values) >= 2
+    assert len(values) <= 5
+    assert all("e-14" in text for text in labels)
+
+
+def test_log_tick_values_lie_inside_the_range():
+    values, _ = tick_values(2e-17, 5e-14, 4, log=True)
+    assert all(2e-17 <= v <= 5e-14 for v in values)
+
+
+def test_log_tick_values_survive_a_non_positive_lower_limit():
+    values, _ = tick_values(0.0, 100.0, 4, log=True)
+    assert all(v > 0 for v in values)
+
+
+def test_a_log_tick_lands_at_the_cell_the_curve_occupies():
+    from specterm1d.term.chrome import _cell_for
+
+    # A decade halfway up a two-decade window belongs in the middle row, not
+    # a hundredth of the way from the top where a linear map would put it.
+    row = _cell_for(10.0, 1.0, 100.0, start=0, size=21, invert=True, log=True)
+    assert row == 10
+    assert _cell_for(10.0, 1.0, 100.0, start=0, size=21, invert=True) == 18
+
+
+def _placements(text):
+    """(row, col, payload) for each positioned write in a chrome string."""
+    import re
+
+    return [(int(m.group(1)) - 1, int(m.group(2)) - 1, m.group(3))
+            for m in re.finditer(
+                r"\x1b\[(\d+);(\d+)H(?:\x1b\[[0-9;]*m)*([^\x1b]*)", text)]
+
+
+def test_render_chrome_places_log_labels_by_decade():
+    layout = layout_for(CellRect(row=0, col=0, rows=22, cols=80), ["1e-19"])
+    text = render_chrome(layout, (1.0, 100.0), (1e-19, 1e-13),
+                         xticks=([1.0, 10.0, 100.0], ["1", "10", "100"]),
+                         yticks=([1e-19, 1e-16, 1e-13],
+                                 ["1e-19", "1e-16", "1e-13"]),
+                         xlog=True, ylog=True)
+    rows = sorted(row for row, _, payload in _placements(text)
+                  if payload.strip() in ("1e-19", "1e-16", "1e-13"))
+    # Three decades evenly spaced apart is what three evenly spaced decades
+    # should look like; on a linear map they would pile up at one end.
+    assert len(rows) == 3
+    assert (rows[1] - rows[0]) == (rows[2] - rows[1]) > 0
+
+
+def test_render_chrome_spaces_log_x_labels_by_decade():
+    layout = layout_for(CellRect(row=0, col=0, rows=22, cols=80), ["1"])
+    text = render_chrome(layout, (1.0, 100.0), (0.0, 1.0),
+                         xticks=([1.0, 10.0, 100.0], ["1", "10", "100"]),
+                         yticks=([0.0, 1.0], ["0", "1"]),
+                         xlog=True)
+    cols = sorted(col for row, col, payload in _placements(text)
+                  if row == layout.label_row and payload.strip()
+                  in ("1", "10", "100"))
+    assert len(cols) == 3
+    # "10" sits in the middle of the axis, give or take its own half-width.
+    assert abs((cols[1] - cols[0]) - (cols[2] - cols[1])) <= 2
+
+
+def test_log_tick_labels_do_not_mix_plain_and_exponent_forms():
+    # %g crosses over partway up a wide range, putting 100000 and 1e+06 in
+    # the same gutter - ragged, and a column wider than either style alone.
+    _, labels = tick_values(1e2, 1e7, 6, log=True)
+    assert all("e" in text for text in labels), labels
+    assert max(len(text) for text in labels) <= 5
+
+
+def test_log_tick_labels_stay_plain_where_they_can():
+    _, labels = tick_values(1.0, 100.0, 4, log=True)
+    assert "1" in labels and "100" in labels

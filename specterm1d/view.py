@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 import astropy.units as u
 import numpy as np
 
-from specterm1d.plot import PlotRequest, autoscale
+from specterm1d.plot import PlotRequest, autoscale, log_floor
 from specterm1d.spec import Spec, SpecCollection, SpecEntry, build_spec
 
 C_KMS = 299792.458
@@ -67,6 +67,9 @@ class ViewState:
     ylim: tuple[float, float] | None = None
     axis: Axis = field(default_factory=Axis)
 
+    xscale: str = "linear"     # 'linear' | 'log' - :logx / :linx
+    yscale: str = "linear"     # 'linear' | 'log' - :logy / :liny
+
     show_sigma: bool = False
     show_mask: bool = False
     overlays: set[str] = field(default_factory=set)
@@ -97,6 +100,14 @@ class ViewState:
     @property
     def entry(self) -> SpecEntry:
         return self.collection[self.index]
+
+    @property
+    def xlog(self) -> bool:
+        return self.xscale == "log"
+
+    @property
+    def ylog(self) -> bool:
+        return self.yscale == "log"
 
     def _spec_key(self) -> str:
         return f"{self.index}:{self.variant or self.entry.default}"
@@ -153,8 +164,24 @@ class ViewState:
             self.xlim = (0.0, 1.0)
             self.ylim = (0.0, 1.0)
             return
-        self.xlim = (float(good.min()), float(good.max()))
-        self.ylim = autoscale(spec, self.xlim, zero_base=self.zero_base)
+        lo, hi = float(good.min()), float(good.max())
+        if self.xlog:
+            # Moving to a spectrum with no positive dispersion values at all -
+            # a velocity axis, say - leaves nothing a log x axis could show.
+            if hi <= 0:
+                self.xscale = "linear"
+            else:
+                lo = log_floor(lo, hi)
+        self.xlim = (lo, hi)
+        limits = autoscale(spec, self.xlim, zero_base=self.zero_base,
+                           log=self.ylog)
+        if limits is None:
+            # Nothing positive in the whole spectrum: a log y axis has no
+            # picture to draw, so it drops away rather than blanking the
+            # plot. The status line's Ly going out is the visible signal.
+            self.yscale = "linear"
+            limits = autoscale(spec, self.xlim, zero_base=self.zero_base)
+        self.ylim = limits
 
     def follow_flux(self) -> None:
         """Put the cursor's y on the spectrum, unless it has been placed."""
@@ -174,8 +201,14 @@ class ViewState:
 
     def rescale_y(self) -> None:
         spec = self.display_spec()
-        self.ylim = autoscale(spec, self.xlim or (spec.wave.min(), spec.wave.max()),
-                              zero_base=self.zero_base)
+        limits = autoscale(spec,
+                           self.xlim or (spec.wave.min(), spec.wave.max()),
+                           zero_base=self.zero_base, log=self.ylog)
+        # A window panned onto an all-negative stretch keeps the limits it
+        # had. Reverting the scale here would mean panning back could not
+        # restore it, and the empty window is temporary either way.
+        if limits is not None:
+            self.ylim = limits
 
     def set_axis(self, mode: str | None = None, unit: u.UnitBase | None = None,
                  velocity_origin: float | None = None) -> None:
@@ -236,4 +269,6 @@ class ViewState:
             cursor=cursor,
             cursor_crosshair=cursor_crosshair,
             fits=tuple(self.fits),
+            xscale=self.xscale,
+            yscale=self.yscale,
         )

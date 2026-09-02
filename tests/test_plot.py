@@ -3,11 +3,14 @@ import numpy as np
 import pytest
 
 from specterm1d.plot import (
+    LOG_DECADES,
     PlotRequest,
     SpectrumPlot,
     autoscale,
     decimate,
+    from_frac,
     masked_flux,
+    to_frac,
 )
 from specterm1d.spec import build_spec
 
@@ -381,3 +384,110 @@ def test_the_dpi_is_clamped_so_a_nonsense_cell_size_cannot_break_the_figure():
     assert plot.dpi <= 600
     plot.cell_px = 0.5
     assert plot.dpi >= 72
+
+
+# ---- log axes ----------------------------------------------------------
+
+def test_to_frac_and_from_frac_round_trip_on_a_log_axis():
+    for value in (1e-19, 3.2e-16, 1.2e-13):
+        frac = to_frac(value, 1e-19, 1e-13, log=True)
+        assert from_frac(frac, 1e-19, 1e-13, log=True) == pytest.approx(value)
+
+
+def test_the_middle_of_a_log_axis_is_the_geometric_mean():
+    assert from_frac(0.5, 1.0, 100.0, log=True) == pytest.approx(10.0)
+    assert to_frac(10.0, 1.0, 100.0, log=True) == pytest.approx(0.5)
+
+
+def test_from_frac_extrapolates_outside_the_window():
+    # Zooming and panning are written as fractions that deliberately leave
+    # 0-1; clamping here would quietly stop them at the window edge.
+    assert from_frac(-0.5, 1.0, 100.0, log=True) == pytest.approx(0.1)
+    assert from_frac(1.5, 0.0, 10.0) == pytest.approx(15.0)
+
+
+def test_to_frac_on_a_log_axis_survives_a_non_positive_value():
+    assert to_frac(-3.0, 1.0, 100.0, log=True) == 0.0
+
+
+def test_log_autoscale_ignores_non_positive_flux():
+    spec = build_spec([1.0, 2, 3, 4], [-5.0, 0.0, 10.0, 1000.0])
+    lo, hi = autoscale(spec, (0.0, 10.0), pad=0.0, log=True)
+    assert lo == pytest.approx(10.0)
+    assert hi == pytest.approx(1000.0)
+
+
+def test_log_autoscale_holds_the_floor_within_six_decades():
+    # A positive noise excursion thirty decades under the peak says nothing
+    # about the spectrum and would leave the data in the top hundredth.
+    spec = build_spec([1.0, 2, 3], [1e-43, 1e-16, 1e-13])
+    lo, hi = autoscale(spec, (0.0, 10.0), pad=0.0, log=True)
+    assert lo == pytest.approx(hi / 10 ** LOG_DECADES)
+    assert lo == pytest.approx(1e-19)
+
+
+def test_log_autoscale_leaves_a_well_behaved_range_alone():
+    spec = build_spec([1.0, 2, 3], [1.0, 50.0, 100.0])
+    lo, hi = autoscale(spec, (0.0, 10.0), pad=0.0, log=True)
+    assert (lo, hi) == pytest.approx((1.0, 100.0))
+
+
+def test_log_autoscale_pads_in_decades():
+    lo, hi = autoscale(build_spec([1.0, 2], [1.0, 100.0]), (0.0, 10.0),
+                       pad=0.5, log=True)
+    # Half a decade of the two-decade span at each end.
+    assert lo == pytest.approx(10 ** -1.0)
+    assert hi == pytest.approx(10 ** 3.0)
+
+
+def test_log_autoscale_returns_none_when_nothing_is_positive():
+    spec = build_spec([1.0, 2, 3], [-5.0, 0.0, -1.0])
+    assert autoscale(spec, (0.0, 10.0), log=True) is None
+
+
+def test_log_autoscale_ignores_zero_base():
+    # Zero is not a place on a log axis, so pinning the base there cannot be
+    # honoured; the smallest positive flux stands in for it.
+    spec = build_spec([1.0, 2], [10.0, 1000.0])
+    lo, _ = autoscale(spec, (0.0, 10.0), zero_base=True, pad=0.0, log=True)
+    assert lo == pytest.approx(10.0)
+
+
+def test_log_autoscale_widens_a_single_valued_window():
+    spec = build_spec([1.0, 2], [7.0, 7.0])
+    lo, hi = autoscale(spec, (0.0, 10.0), pad=0.0, log=True)
+    assert hi > lo
+
+
+def test_the_requested_scales_reach_the_figure():
+    plot = SpectrumPlot(200, 120)
+    spec = build_spec(np.linspace(1.0, 100.0, 50), np.linspace(1.0, 100.0, 50))
+    plot.draw(PlotRequest(spec=spec, xlim=(1.0, 100.0), ylim=(1.0, 100.0),
+                          xscale="log", yscale="log"))
+    assert plot.ax.get_xscale() == "log"
+    assert plot.ax.get_yscale() == "log"
+
+
+def test_a_log_axis_masks_non_positive_points_rather_than_clipping_them():
+    # matplotlib's default is "clip", which drives every negative pixel onto
+    # the bottom edge - a picket fence of spikes into the axis floor on any
+    # sky-subtracted spectrum. Masked, they break the line, which is what
+    # masked_flux() already does with a nan.
+    plot = SpectrumPlot(200, 120)
+    spec = build_spec([1.0, 2, 3], [1.0, 10.0, 100.0])
+    plot.draw(PlotRequest(spec=spec, xlim=(1.0, 3.0), ylim=(1.0, 100.0),
+                          yscale="log"))
+    transformed = plot.ax.yaxis.get_transform().transform(np.array([-5.0, 10.0]))
+    assert not np.isfinite(transformed[0])
+    assert transformed[1] == pytest.approx(1.0)
+
+
+def test_a_frame_drawn_after_a_log_one_goes_back_to_linear():
+    # ax.clear() drops the scale, so it has to be restated every frame; a
+    # figure that kept the old one would draw the next spectrum wrong.
+    plot = SpectrumPlot(200, 120)
+    spec = build_spec([1.0, 2, 3], [1.0, 10.0, 100.0])
+    plot.draw(PlotRequest(spec=spec, xlim=(1.0, 3.0), ylim=(1.0, 100.0),
+                          yscale="log"))
+    plot.draw(PlotRequest(spec=spec, xlim=(1.0, 3.0), ylim=(1.0, 100.0)))
+    assert plot.ax.get_yscale() == "linear"

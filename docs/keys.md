@@ -119,7 +119,9 @@ cursor +/- d/4, and `p` pans to cursor +/- d, which doubles the span.
 | `:dispaxis` | 2D-image concern; specterm1d ingests 1D |
 | `:flip` | reverse the dispersion axis |
 | `:hist` | draw the spectrum as a histogram |
+| `:linx` / `:liny` | put the dispersion / flux axis back on a linear scale |
 | `:log` | resume writing measurements to the log file |
+| `:logx` / `:logy` | plot the dispersion / flux axis logarithmically |
 | `:mask` | highlight masked pixels |
 | `:model` | overlay the object model |
 | `:mouse [yes\|no]` | toggle positioning (inline by default; pixel-precise where the terminal does DECSET 1016, cells under tmux) |
@@ -139,6 +141,31 @@ cursor +/- d/4, and `p` pans to cursor +/- d, which doubles the span.
 
 Boolean toggles accept `yes`/`no` (also `on`/`off`, `1`/`0`); with no
 argument they flip the current setting.
+
+### Logarithmic axes
+
+`splot` had no log axes at all; these are new. `:logy` earns its keep on
+high dynamic range data, where an emission line four decades over the
+continuum leaves everything else flattened onto the bottom of a linear
+plot.
+
+The four commands are separate verbs rather than two toggles because the
+switch can refuse: `:logy` needs some positive flux in the window and
+`:logx` some positive dispersion, and declines with a message rather than
+drawing an empty axis. A toggle whose result you cannot predict is worse
+than saying which one you want.
+
+Autoscaling a log axis takes the largest flux in the window and the
+smallest *positive* one, but holds the bottom within six decades of the
+top. Sky-subtracted flux crosses zero, so the smallest positive pixel is a
+noise excursion that can sit thirty decades under the continuum, and
+without the floor the spectrum would be squeezed into the top hundredth of
+the plot.
+
+Non-positive pixels are not drawn - the line breaks at them, exactly as it
+does at a masked column. `:zero` has no meaning while `:logy` is up and
+says so; turning `:logy` on clears it. The status line shows `Lx` and `Ly`
+for the axes currently logarithmic.
 
 ## Cursor scripts
 

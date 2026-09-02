@@ -11,7 +11,7 @@ from dataclasses import dataclass, field, replace
 import numpy as np
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
-from matplotlib.ticker import MaxNLocator
+from matplotlib.ticker import LogLocator, MaxNLocator
 
 from specterm1d import theme
 from specterm1d.spec import Spec
@@ -106,6 +106,56 @@ MARGIN_CAP = 0.33
 BASE_DPI = 100
 MIN_DPI, MAX_DPI = 72, 600
 
+# How far below the peak a log axis is willing to autoscale. Sky-subtracted
+# flux crosses zero, so the smallest *positive* pixel in a window is a noise
+# excursion whose size says nothing about the spectrum: it can sit thirty
+# decades under the continuum and would leave the real data compressed into
+# the top hundredth of the plot. Six decades is past where any continuum
+# feature lives and still shows an emission line towering over the noise.
+LOG_DECADES = 6
+
+
+def to_frac(value, lo, hi, log: bool = False) -> float:
+    """Where ``value`` falls in ``[lo, hi]``, as a 0-1 fraction of the axis.
+
+    The inverse of ``from_frac``. Everything that converts between a data
+    coordinate and a position - terminal cells, mouse clicks, cursor steps,
+    zooming - goes through this pair, so a log axis is handled once here
+    rather than at every call site.
+    """
+    if log:
+        if value <= 0 or lo <= 0 or hi <= lo:
+            return 0.0
+        return float((np.log10(value) - np.log10(lo))
+                     / (np.log10(hi) - np.log10(lo)))
+    if hi <= lo:
+        return 0.0
+    return float((value - lo) / (hi - lo))
+
+
+def from_frac(frac, lo, hi, log: bool = False) -> float:
+    """The data coordinate a 0-1 fraction of the axis names.
+
+    Extrapolates outside 0-1 rather than clamping: zooming and panning are
+    written as fractions that deliberately fall outside the current window.
+    """
+    if log and lo > 0 and hi > 0:
+        return float(10.0 ** (np.log10(lo)
+                              + frac * (np.log10(hi) - np.log10(lo))))
+    return float(lo + frac * (hi - lo))
+
+
+def log_floor(lo: float, hi: float) -> float:
+    """``lo`` raised to whatever LOG_DECADES below ``hi`` allows.
+
+    A non-positive ``lo`` - the blue end of a pixel axis, a window that
+    straddles zero - has no logarithm at all and takes the floor outright.
+    """
+    if hi <= 0:
+        return lo
+    floor = hi / 10.0 ** LOG_DECADES
+    return floor if lo <= 0 else max(lo, floor)
+
 
 def chrome_for(width_px: float, height_px: float) -> Chrome:
     """Pick the decoration that fits a figure of this size."""
@@ -116,7 +166,8 @@ def chrome_for(width_px: float, height_px: float) -> Chrome:
     return CHROME_TINY
 
 
-def tick_values(lo: float, hi: float, n: int) -> tuple[list[float], list[str]]:
+def tick_values(lo: float, hi: float, n: int,
+                log: bool = False) -> tuple[list[float], list[str]]:
     """Round tick positions inside ``[lo, hi]``, with formatted labels.
 
     A pure function of the limits - no figure and no axis - because the
@@ -125,6 +176,8 @@ def tick_values(lo: float, hi: float, n: int) -> tuple[list[float], list[str]]:
     """
     if not np.isfinite([lo, hi]).all() or hi <= lo:
         return [lo], [_format_tick(lo, 0)]
+    if log:
+        return _log_tick_values(lo, hi, n)
 
     values = MaxNLocator(max(n, 2)).tick_values(lo, hi)
     values = [float(v) for v in values if lo <= v <= hi]
@@ -142,6 +195,45 @@ def tick_values(lo: float, hi: float, n: int) -> tuple[list[float], list[str]]:
     if max(len(text) for text in labels) > 8:
         labels = [f"{v:.3g}" for v in values]
     return values, labels
+
+
+def _log_tick_values(lo: float, hi: float,
+                     n: int) -> tuple[list[float], list[str]]:
+    """Decade ticks, falling back to the 2-3-5 points inside one decade.
+
+    ``LogLocator`` returns nothing at all when its subdivisions miss the
+    range - whole decades across a window narrower than one, and the
+    subdivisions across a window many decades wide - so both are tried and
+    the fallback is thinned to roughly the requested count.
+    """
+    if lo <= 0:
+        lo = log_floor(np.nextafter(0.0, 1.0), hi)
+
+    values = [float(v) for v in LogLocator(numticks=max(n, 2)).tick_values(lo, hi)
+              if lo <= v <= hi]
+    if len(values) < 2:
+        dense = [float(v) for v in
+                 LogLocator(subs="all", numticks=max(n, 2)).tick_values(lo, hi)
+                 if lo <= v <= hi]
+        stride = max((len(dense) + n - 1) // max(n, 1), 1)
+        values = dense[::stride]
+    if len(values) < 2:
+        values = [lo, hi]
+
+    labels = [f"{v:g}" for v in values]
+    # %g crosses into exponent notation partway up a wide range, which puts
+    # 100000 and 1e+06 in the same gutter - ragged to read, and a column
+    # wider than either style on its own. One decade in exponent form makes
+    # the whole axis exponent form.
+    if any("e" in text for text in labels):
+        labels = [_scientific(v) for v in values]
+    return values, labels
+
+
+def _scientific(value: float) -> str:
+    """``value`` as a bare mantissa and exponent, the way %g writes one."""
+    mantissa, exponent = f"{value:.2e}".split("e")
+    return f"{mantissa.rstrip('0').rstrip('.')}e{exponent}"
 
 
 def _format_tick(value: float, decimals: int) -> str:
@@ -204,16 +296,37 @@ def decimate(x, y, xmin: float, xmax: float, ncols: int, threshold: int = 4):
 
 
 def autoscale(spec: Spec, xlim: tuple[float, float], zero_base: bool = False,
-              pad: float = 0.05) -> tuple[float, float]:
+              pad: float = 0.05,
+              log: bool = False) -> tuple[float, float] | None:
     """Flux limits over the good pixels inside ``xlim``.
 
     Masked pixels are excluded deliberately: bad columns and chip gaps
     otherwise dominate the scaling and flatten the real spectrum.
+
+    On a log axis only positive pixels count, the bottom is held within
+    LOG_DECADES of the peak, and ``zero_base`` is ignored - zero is not a
+    place on a log axis. Returns None when nothing in the window is
+    positive, which is the caller's cue that a log axis cannot be drawn
+    here at all.
     """
     lo_x, hi_x = xlim
     sel = spec.good & (spec.wave >= lo_x) & (spec.wave <= hi_x)
     values = spec.flux[sel]
     values = values[np.isfinite(values)]
+
+    if log:
+        values = values[values > 0]
+        if values.size == 0:
+            return None
+        hi = float(values.max())
+        lo = log_floor(float(values.min()), hi)
+        if hi <= lo:
+            hi = lo * 10.0
+        # The margin is a share of the decades spanned, so it looks the same
+        # whether the window covers one decade or ten.
+        margin = (np.log10(hi) - np.log10(lo)) * pad
+        return (float(10.0 ** (np.log10(lo) - margin)),
+                float(10.0 ** (np.log10(hi) + margin)))
 
     if values.size == 0:
         return (0.0, 1.0)
@@ -243,6 +356,8 @@ class PlotRequest:
     markers: tuple[float, ...] = ()
     cursor: tuple[float, float | None] | None = None
     cursor_crosshair: bool = False
+    xscale: str = "linear"
+    yscale: str = "linear"
     fits: tuple[tuple[np.ndarray, np.ndarray], ...] = field(default_factory=tuple)
 
 
@@ -255,6 +370,8 @@ class SpectrumPlot:
         self._base_dpi = dpi
         self._cell_px: float | None = None
         self._bare = bare
+        self._xscale = "linear"
+        self._yscale = "linear"
         self.fig = Figure(figsize=(width_px / dpi, height_px / dpi), dpi=dpi,
                           facecolor=theme.active().figure)
         FigureCanvasAgg(self.fig)
@@ -313,9 +430,26 @@ class SpectrumPlot:
         return chrome.with_text_room(chrome.fontsize * self.dpi / 72,
                                      width_px, height_px)
 
+    def _set_scales(self) -> None:
+        """Apply the axis scales. Restated every frame: ax.clear() drops them.
+
+        nonpositive="mask" rather than matplotlib's default "clip": clipping
+        drives every negative pixel onto the bottom edge, so a sky-subtracted
+        spectrum grows a picket fence of spikes into the axis floor. Masked,
+        they break the line instead - what masked_flux() already does with a
+        nan, and what a gap in the data should look like.
+        """
+        for axis, scale in (("x", self._xscale), ("y", self._yscale)):
+            setter = getattr(self.ax, f"set_{axis}scale")
+            if scale == "log":
+                setter("log", nonpositive="mask")
+            else:
+                setter("linear")
+
     def _style_axes(self, chrome: Chrome) -> None:
         ax = self.ax
         palette = theme.active()
+        self._set_scales()
         # Restated every frame rather than at construction, so switching the
         # theme under a live figure repaints it.
         self.fig.set_facecolor(palette.figure)
@@ -356,8 +490,15 @@ class SpectrumPlot:
         if chrome.minor_ticks:
             ax.minorticks_on()
         if chrome.ticks is not None:
-            ax.xaxis.set_major_locator(MaxNLocator(chrome.ticks))
-            ax.yaxis.set_major_locator(MaxNLocator(chrome.ticks))
+            # A count-limited linear locator on a log axis puts ticks between
+            # the decades and labels them 200000, 400000; the log axis wants
+            # its own locator or none.
+            ax.xaxis.set_major_locator(
+                LogLocator(numticks=chrome.ticks) if self._xscale == "log"
+                else MaxNLocator(chrome.ticks))
+            ax.yaxis.set_major_locator(
+                LogLocator(numticks=chrome.ticks) if self._yscale == "log"
+                else MaxNLocator(chrome.ticks))
         left, right, top, bottom = chrome.margins
         self.fig.subplots_adjust(left=left, right=right, top=top, bottom=bottom)
 
@@ -420,6 +561,7 @@ class SpectrumPlot:
         """
         ax = self.ax
         ax.clear()
+        self._xscale, self._yscale = req.xscale, req.yscale
         chrome = self.chrome()
         self._style_axes(chrome)
         palette = theme.active()
