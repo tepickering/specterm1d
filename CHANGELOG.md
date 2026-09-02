@@ -6,6 +6,10 @@ minor bump is where breaking changes live until 1.0.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.1] - 2026-09-01
+
 ### Added
 
 - **Logarithmic axes: `:logx`, `:logy`, `:linx`, `:liny`.** Something splot
@@ -17,6 +21,12 @@ minor bump is where breaking changes live until 1.0.
   A switch with nothing positive to show declines and says so. The `text`
   backend draws its own decade ticks, and clicks, arrow keys, zooming and
   panning all work across the axis rather than across the value range.
+
+### Fixed
+
+- Log tick labels no longer mix `100000` and `1e+06` in the same axis. The
+  terminal sizes its y gutter to the widest label, so the mixture cost the
+  plot a column as well as reading badly.
 
 ## [0.2.0] - 2026-09-01
 
@@ -93,7 +103,8 @@ matplotlib window, and block glyphs), loaders for specutils and pypeit files,
 equivalent widths and gaussian/lorentzian/voigt fits written to a `splot.log`,
 cursor scripts for batch measurement, and a documentation site.
 
-[Unreleased]: https://github.com/tepickering/specterm1d/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/tepickering/specterm1d/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/tepickering/specterm1d/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/tepickering/specterm1d/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/tepickering/specterm1d/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/tepickering/specterm1d/compare/v0.1.0...v0.1.1
