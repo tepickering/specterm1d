@@ -296,3 +296,16 @@ def test_render_chrome_spaces_log_x_labels_by_decade():
     assert len(cols) == 3
     # "10" sits in the middle of the axis, give or take its own half-width.
     assert abs((cols[1] - cols[0]) - (cols[2] - cols[1])) <= 2
+
+
+def test_log_tick_labels_do_not_mix_plain_and_exponent_forms():
+    # %g crosses over partway up a wide range, putting 100000 and 1e+06 in
+    # the same gutter - ragged, and a column wider than either style alone.
+    _, labels = tick_values(1e2, 1e7, 6, log=True)
+    assert all("e" in text for text in labels), labels
+    assert max(len(text) for text in labels) <= 5
+
+
+def test_log_tick_labels_stay_plain_where_they_can():
+    _, labels = tick_values(1.0, 100.0, 4, log=True)
+    assert "1" in labels and "100" in labels

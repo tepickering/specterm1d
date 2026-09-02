@@ -221,9 +221,19 @@ def _log_tick_values(lo: float, hi: float,
         values = [lo, hi]
 
     labels = [f"{v:g}" for v in values]
-    if max(len(text) for text in labels) > 8:
-        labels = [f"{v:.3g}" for v in values]
+    # %g crosses into exponent notation partway up a wide range, which puts
+    # 100000 and 1e+06 in the same gutter - ragged to read, and a column
+    # wider than either style on its own. One decade in exponent form makes
+    # the whole axis exponent form.
+    if any("e" in text for text in labels):
+        labels = [_scientific(v) for v in values]
     return values, labels
+
+
+def _scientific(value: float) -> str:
+    """``value`` as a bare mantissa and exponent, the way %g writes one."""
+    mantissa, exponent = f"{value:.2e}".split("e")
+    return f"{mantissa.rstrip('0').rstrip('.')}e{exponent}"
 
 
 def _format_tick(value: float, decimals: int) -> str:
