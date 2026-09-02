@@ -218,7 +218,7 @@ The complete reference is in [the key and command reference](https://specterm1d.
 | `s` | boxcar smooth |
 | `U` | undo the last transform |
 | `w` | the gtools window submode |
-| `:` | colon commands (`:units nm`, `:sigma`, `:sky`, `:mask`, …) |
+| `:` | colon commands (`:units nm`, `:logy`, `:sigma`, `:sky`, `:mask`, …) |
 | `q` | next input spectrum, then exit |
 
 Multi-point commands are explicit: press the command key to arm it, then mark

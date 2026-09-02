@@ -6,7 +6,17 @@ minor bump is where breaking changes live until 1.0.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Logarithmic axes: `:logx`, `:logy`, `:linx`, `:liny`.** Something splot
+  never had, and what high dynamic range spectra want - an emission line four
+  decades over the continuum leaves everything else flat on the floor of a
+  linear plot. Autoscaling holds the bottom within six decades of the peak, so
+  positive noise excursions near zero cannot swallow the window, and
+  non-positive pixels break the line rather than being clipped onto the axis.
+  A switch with nothing positive to show declines and says so. The `text`
+  backend draws its own decade ticks, and clicks, arrow keys, zooming and
+  panning all work across the axis rather than across the value range.
 
 ## [0.2.0] - 2026-09-01
 
