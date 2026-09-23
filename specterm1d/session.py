@@ -1,7 +1,8 @@
 """The interactive session: layout, status line, dispatch, and teardown.
 
-Layout follows splot: the plot fills all but the bottom two rows, then a
-status line and a message/prompt line.
+Layout follows splot: the plot fills all but the bottom rows, then a status
+line and the message/prompt. The message gets two rows where splot had one,
+so a profile fit with its errors is not cut off at 80 columns.
 
 Teardown is the failure mode that matters most. Raw mode plus a hidden cursor
 plus a stray placed image is the worst way for a TUI to die, so it runs from
@@ -28,6 +29,38 @@ from specterm1d.term.chrome import ChromeLayout, layout_for, render_chrome
 from specterm1d.term.input import Key, KeyReader
 from specterm1d.transcript import Transcript
 from specterm1d.view import ViewState
+
+MESSAGE_ROWS = 2
+FOOTER_ROWS = 1 + MESSAGE_ROWS          # the status bar, then the message
+
+
+def wrap_message(text: str, cols: int, rows: int = MESSAGE_ROWS) -> list[str]:
+    """Fit a message into ``rows`` lines of ``cols``, padded with blank lines.
+
+    Measurement messages separate their fields with two spaces and keep single
+    spaces inside a field (``eqw=2.48 ± 0.02``), so breaking only at a double
+    space never parts a value from its error. What still does not fit is cut.
+    """
+    if len(text) <= cols:
+        lines = [text]
+    else:
+        lines, current = [], ""
+        for field in text.split("  "):
+            while len(field) > cols:         # too long for any row: cut it
+                if current:
+                    lines.append(current)
+                    current = ""
+                lines.append(field[:cols])
+                field = field[cols:]
+            joined = f"{current}  {field}" if current else field
+            if len(joined) <= cols:
+                current = joined
+            else:
+                lines.append(current)
+                current = field
+        lines.append(current)
+    lines = lines[:rows]
+    return lines + [""] * (rows - len(lines))
 
 HIDE_CURSOR = "\x1b[?25l"
 SHOW_CURSOR = "\x1b[?25h"
@@ -203,7 +236,7 @@ class Session:
 
     def outer_rect(self) -> CellRect:
         """Everything above the status and message lines."""
-        return CellRect(row=0, col=0, rows=max(self.caps.rows - 2, 1),
+        return CellRect(row=0, col=0, rows=max(self.caps.rows - FOOTER_ROWS, 1),
                         cols=self.caps.cols)
 
     def chrome_layout(self) -> ChromeLayout:
@@ -251,7 +284,7 @@ class Session:
         """Render one frame without writing to the terminal.
 
         ``size`` overrides the terminal-derived geometry. --dump wants that:
-        a PNG has no status line to leave two rows for, so it should come out
+        a PNG has no status line to leave rows for, so it should come out
         at exactly the requested size.
         """
         if size is None:
@@ -402,10 +435,12 @@ class Session:
 
     def _write_footer(self) -> None:
         rows = self.caps.rows
-        status = self.status_line().ljust(self.caps.cols)[: self.caps.cols]
-        message = self.last_message.ljust(self.caps.cols)[: self.caps.cols]
-        self.out.write(f"\x1b[{rows - 1};1H\x1b[7m{status}\x1b[0m")
-        self.out.write(f"\x1b[{rows};1H{message}")
+        cols = self.caps.cols
+        status = self.status_line().ljust(cols)[:cols]
+        self.out.write(f"\x1b[{rows - MESSAGE_ROWS};1H\x1b[7m{status}\x1b[0m")
+        lines = wrap_message(self.last_message, cols)
+        for row, line in enumerate(lines, start=rows - MESSAGE_ROWS + 1):
+            self.out.write(f"\x1b[{row};1H{line.ljust(cols)}")
         self.out.flush()
 
     def status_line(self) -> str:

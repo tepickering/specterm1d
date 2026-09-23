@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from specterm1d.plot import SpectrumPlot
-from specterm1d.session import Session
+from specterm1d.session import FOOTER_ROWS, Session, wrap_message
 from specterm1d.spec import SpecCollection, SpecEntry, build_spec
 from specterm1d.term.caps import TerminalCaps
 from specterm1d.term.input import Key
@@ -32,10 +32,10 @@ def test_render_writes_to_the_output_stream():
     assert len(out.getvalue()) > 0
 
 
-def test_outer_rect_leaves_two_rows_for_status_and_message():
+def test_outer_rect_leaves_a_status_row_and_two_message_rows():
     session, _ = make_session()
     rect = session.outer_rect()
-    assert rect.rows == session.caps.rows - 2
+    assert rect.rows == session.caps.rows - FOOTER_ROWS == session.caps.rows - 3
     assert rect.cols == session.caps.cols
 
 
@@ -64,7 +64,7 @@ def test_resize_updates_caps_and_plot_size():
     session, _ = make_session()
     session.on_resize(rows=40, cols=120)
     assert session.caps.rows == 40 and session.caps.cols == 120
-    assert session.outer_rect().rows == 38
+    assert session.outer_rect().rows == 37
 
 
 def test_arrow_keys_move_the_cursor():
@@ -145,7 +145,7 @@ def _session_with(caps, renderer=None):
     coll = SpecCollection(entries=[SpecEntry("A", {"F": spec}, "F")], path="x")
     out = io.StringIO()
     renderer = renderer or TextRenderer(out=out, truecolor=True)
-    width, height = renderer.target_pixels(caps.rows - 2, caps.cols)
+    width, height = renderer.target_pixels(caps.rows - FOOTER_ROWS, caps.cols)
     return Session(coll, renderer, SpectrumPlot(width, height), out, caps)
 
 
@@ -321,3 +321,42 @@ def test_the_status_line_flags_a_logarithmic_axis():
     session.view.xscale = "log"
     line = session.status_line()
     assert "Lx" in line and "Ly" in line
+
+
+# ---- a message too long for one row wraps onto the next -------------
+
+def test_a_short_message_takes_one_row():
+    assert wrap_message("loaded x (1 spectra)", 80) == ["loaded x (1 spectra)", ""]
+
+
+def test_a_long_message_wraps_between_fields():
+    fields = ["gaussian: cen=5500.006 ± 0.023", "eqw=2.482 ± 0.024",
+              "flux=-2.482 ± 0.024", "ampl=-0.4737 ± 0.0045",
+              "gfwhm=4.922 ± 0.054", "chi2_r=1.00"]
+    rows = wrap_message("  ".join(fields), 80)
+    assert all(len(row) <= 80 for row in rows)
+    assert "  ".join(rows).split("  ") == fields     # nothing split or lost
+
+
+def test_a_value_and_its_error_stay_on_the_same_row():
+    rows = wrap_message("a=1 ± 2  " * 20, 30)
+    for row in rows:
+        assert not row.rstrip().endswith("±")
+        assert not row.lstrip().startswith("±")
+
+
+def test_a_message_longer_than_two_rows_is_cut():
+    rows = wrap_message("x" * 500, 80)
+    assert rows == ["x" * 80, "x" * 80]
+
+
+def test_the_footer_draws_both_message_rows():
+    session, out = make_session()
+    rows = session.caps.rows
+    session.message("  ".join(f"field{i}=value" for i in range(12)))
+    session.render()
+    text = out.getvalue()
+    first, second = wrap_message(session.last_message, session.caps.cols)
+    assert f"\x1b[{rows - 1};1H{first}" in text
+    assert f"\x1b[{rows};1H{second}" in text
+    assert f"\x1b[{rows - 2};1H\x1b[7m" in text    # the status bar above them

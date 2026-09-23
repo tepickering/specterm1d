@@ -1,6 +1,8 @@
 """Measurement commands."""
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from specterm1d.fitting import (
@@ -30,12 +32,12 @@ def equivalent_width(session):
         sess.log.record("e", center=result.center, cont=result.cont,
                         flux=result.flux, eqw=result.eqw)
 
-        sess.message(
-            f"center = {result.center:9.7g}{_pm(result.center_err)}, "
-            f"eqw = {result.eqw:9.4f}{_pm(result.eqw_err)}, "
-            f"continuum = {result.cont:9.7g} "
-            f"flux = {result.flux:9.6g}{_pm(result.flux_err)}"
-        )
+        sess.message("  ".join([
+            f"cen={format_measure(result.center, result.center_err, 7)}",
+            f"eqw={format_measure(result.eqw, result.eqw_err, 6)}",
+            f"cont={format_measure(result.cont, sig=7)}",
+            f"flux={format_measure(result.flux, result.flux_err, 6)}",
+        ]))
 
     session.await_cursor(2, "mark two continuum points around the line", done)
 
@@ -84,22 +86,65 @@ def _report_fit(session, fit, kind_label: str) -> None:
     # The numbers still go out - they are usually about right, and refusing
     # to show them helps nobody - but a fit sitting on its limits is not a
     # measurement, and saying so beats a plausible-looking width in the log.
-    warning = (f"  [{fit.at_bound} hit the marked range - check the continuum "
+    # The numbers still go out - they are usually about right, and refusing
+    # to show them helps nobody - but a fit sitting on its limits is not a
+    # measurement, and saying so beats a plausible-looking width in the log.
+    # First, so it is the part that survives when the line runs out of room.
+    warning = (f" [{fit.at_bound} hit the marked range - check the continuum "
                "marks]") if fit.at_bound else ""
-    chisq = f"  chi2_r = {fit.chisq:.3g}" if np.isfinite(fit.chisq) else ""
-    session.message(
-        f"{kind_label}: center = {fit.center:9.7g}{_pm(fit.center_err)}, "
-        f"eqw = {fit.eqw:9.4g}{_pm(fit.eqw_err)}, "
-        f"flux = {fit.flux:9.6g}{_pm(fit.flux_err)}, "
-        f"ampl = {fit.peak:9.6g}{_pm(fit.peak_err)}, "
-        f"gfwhm = {fit.gfwhm:9.4g}{_pm(fit.gfwhm_err)}, "
-        f"lfwhm = {fit.lfwhm:9.4g}{_pm(fit.lfwhm_err)}{chisq}{warning}"
-    )
+    fields = [
+        f"{kind_label}{warning}: "
+        f"cen={format_measure(fit.center, fit.center_err, 7)}",
+        f"eqw={format_measure(fit.eqw, fit.eqw_err, 4)}",
+        f"flux={format_measure(fit.flux, fit.flux_err, 6)}",
+        f"ampl={format_measure(fit.peak, fit.peak_err, 6)}",
+    ]
+    # A width the profile does not have (lfwhm for a gaussian) is always
+    # zero, and saying so costs a dozen columns of a line that is short of them.
+    for name in ("gfwhm", "lfwhm"):
+        value, err = getattr(fit, name), getattr(fit, f"{name}_err")
+        if value != 0 or np.isfinite(err):
+            fields.append(f"{name}={format_measure(value, err, 4)}")
+    if np.isfinite(fit.chisq):
+        chisq = (f"{fit.chisq:.2f}" if fit.chisq < 100
+                 else _compact_exponent(f"{fit.chisq:.3g}"))
+        fields.append(f"chi2_r={chisq}")
+    session.message("  ".join(fields))
 
 
-def _pm(err: float) -> str:
-    """' ± err' for a known one-sigma error, nothing for an unknown one."""
-    return f" ± {err:.2g}" if np.isfinite(err) else ""
+def format_measure(value: float, err: float = float("nan"), sig: int = 6) -> str:
+    """``value ± err``, the value quoted only as far as its error supports.
+
+    The error keeps two significant figures and the value is rounded to the
+    same decimal place, but never to more than ``sig`` figures - the precision
+    the log keeps. Without an error it is just ``sig`` significant figures.
+    """
+    if not math.isfinite(value):
+        return f"{value}"
+    if not (math.isfinite(err) and err > 0):
+        return _compact_exponent(f"{value:.{sig}g}")
+    place = math.floor(math.log10(err)) - 1      # last digit of a two-figure error
+    return f"{_to_place(value, place, sig)} ± {_to_place(err, place, 2)}"
+
+
+def _to_place(x: float, place: int, sig: int) -> str:
+    """``x`` rounded to the 10**place digit, and to at most ``sig`` figures."""
+    if x == 0:
+        return f"{0.0:.{max(0, -place)}f}"
+    place = max(place, math.floor(math.log10(abs(x))) - sig + 1)
+    x = round(x, -place)
+    if x == 0:
+        return f"{0.0:.{max(0, -place)}f}"
+    mag = math.floor(math.log10(abs(x)))         # after rounding: 9.99 -> 10.0
+    if -4 <= mag < 5:
+        return f"{x:.{max(0, -place)}f}"
+    return _compact_exponent(f"{x:.{max(0, mag - place)}e}")
+
+
+def _compact_exponent(text: str) -> str:
+    """``1.83e+07`` as ``1.83e7``: four characters a field, on a full line."""
+    mantissa, marker, exponent = text.partition("e")
+    return f"{mantissa}e{int(exponent)}" if marker else text
 
 
 @command("measure.profile")

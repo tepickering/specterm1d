@@ -4,6 +4,7 @@ import re
 import pytest
 
 import specterm1d.commands  # noqa: F401
+from specterm1d.commands.measure import format_measure
 from specterm1d.term.input import Key
 from tests.test_session import make_session
 
@@ -130,7 +131,7 @@ def test_a_saturated_fit_is_still_reported_and_logged():
     for x in (4995.0, 5025.0):
         session.view.cursor_x = x
         session.handle(Key("char", " "))
-    assert "center" in session.last_message
+    assert "cen=" in session.last_message
     assert session.log.lines
 
 
@@ -154,11 +155,13 @@ def test_a_good_fit_reports_its_uncertainties_and_chi_square():
         session.view.cursor_x = x
         session.handle(Key("char", " "))
     message = session.last_message
-    assert re.search(r"center = +5009\.2 ± [0-9.e+-]+,", message)
-    assert re.search(r"eqw = +-?[0-9.e+]+ ± [0-9.e+-]+,", message)
-    assert "chi2_r = " in message
-    assert re.search(r"ampl = +-?[0-9.e+]+ ± [0-9.e+-]+,", message)
-    assert "core" not in message
+    assert re.search(r"cen=5009\.2\d* ± [0-9.e-]+(  |$)", message)
+    assert re.search(r"  eqw=-?[0-9.e-]+ ± [0-9.e-]+(  |$)", message)
+    assert re.search(r"  ampl=-?[0-9.e-]+ ± [0-9.e-]+(  |$)", message)
+    assert re.search(r"  chi2_r=[0-9.e-]+", message)
+    assert "core" not in message and "center" not in message
+    assert "lfwhm" not in message                  # a gaussian has none
+    assert "   " not in message                    # no fixed-width padding
     assert "+/-" not in message
 
 
@@ -187,7 +190,7 @@ def test_the_profile_fit_uses_the_spectrum_mask():
     for x in (4995.0, 5025.0):
         session.view.cursor_x = x
         session.handle(Key("char", " "))
-    assert "center =    5009.2" in session.last_message
+    assert "cen=5009.2" in session.last_message
 
 
 def test_e_quotes_its_errors_inline():
@@ -196,9 +199,10 @@ def test_e_quotes_its_errors_inline():
     mark(session, 4995.0, 6000.0)
     mark(session, 5025.0, 6000.0)
     message = session.last_message
-    assert re.search(r"eqw = +-?[0-9.e+]+ ± [0-9.e+-]+,", message)
-    assert re.search(r"flux = +-?[0-9.e+]+ ± [0-9.e+-]+$", message)
-    assert "+/-" not in message
+    assert re.search(r"  eqw=-?[0-9.e-]+ ± [0-9.e-]+  ", message)
+    assert re.search(r"  cont=6000  ", message)
+    assert re.search(r"  flux=-?[0-9.e-]+ ± [0-9.e-]+$", message)
+    assert "+/-" not in message and "   " not in message
 
 
 def test_e_without_sigma_shows_no_plus_minus():
@@ -208,3 +212,39 @@ def test_e_without_sigma_shows_no_plus_minus():
     mark(session, 5400.0, 2.0)
     assert "±" not in session.last_message
 
+
+
+# ---- values are quoted to the precision their errors support --------
+
+@pytest.mark.parametrize(("value", "err", "sig", "text"), [
+    (5500.0061, 0.0234, 7, "5500.006 ± 0.023"),       # rounded to the error
+    (2.48213, 0.0241, 4, "2.482 ± 0.024"),
+    (-0.47372, 0.00451, 6, "-0.4737 ± 0.0045"),
+    (1832571.0, 159.0, 6, "1.83257e6 ± 160"),         # error to two figures
+    (1.8279e-15, 3.71e-18, 6, "1.8279e-15 ± 3.7e-18"),
+    (9.996, 0.0213, 4, "9.996 ± 0.021"),
+    (9.9996, 0.213, 4, "10.00 ± 0.21"),               # rounding carries a digit
+    (5500.000012, 0.00017, 7, "5500.000 ± 0.00017"),  # never past sig figures
+    (3.0, 51.0, 4, "3 ± 51"),                         # error bigger than value
+    (0.0, 0.012, 4, "0.000 ± 0.012"),
+    (5009.2, float("nan"), 7, "5009.2"),              # no error: sig figures
+    (1.83235e7, float("nan"), 6, "1.83235e7"),
+    (float("nan"), 0.1, 4, "nan"),
+])
+def test_format_measure(value, err, sig, text):
+    assert format_measure(value, err, sig) == text
+
+
+def test_the_bounds_warning_survives_the_wrap_at_80_columns():
+    from specterm1d.session import wrap_message
+
+    # A voigt has the most fields, so it is the one that spills furthest.
+    session = _bad_continuum_session()
+    session.view.cursor_y = 2144858.0
+    for char in "kv":
+        session.handle(Key("char", char))
+    for x in (4995.0, 5025.0):
+        session.view.cursor_x = x
+        session.handle(Key("char", " "))
+    shown = "  ".join(wrap_message(session.last_message, 80))
+    assert "check the continuum" in shown

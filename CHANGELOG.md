@@ -23,6 +23,12 @@ minor bump is where breaking changes live until 1.0.
 - The profile-fit message calls the fitted peak height `ampl` rather than
   splot's `core`, which read as something other than the amplitude above the
   continuum it is.
+- The message area is two rows instead of one, and the plot one row shorter.
+  A long message wraps between fields, never between a value and its error.
+- `k` and `e` messages are compact: `cen=5500.006 ± 0.023  eqw=2.482 ± 0.024`,
+  no fixed-width padding, values rounded to the precision of their errors,
+  exponents as `1.8e7`, and no width that the profile does not have. A fit
+  that hit its bounds leads with the warning, so it is never the part cut off.
 
 ### Fixed
 
