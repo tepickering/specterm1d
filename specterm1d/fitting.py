@@ -278,15 +278,22 @@ def fit_profile(wave, flux, sigma, x1: float, y1: float, x2: float, y2: float,
     continuum = _ramp(xs, x1, y1, x2, y2)
     residual = ys - continuum
 
+    # Without errors, residuals are divided by the line's own size instead:
+    # the solver's tolerances are absolute, and on residuals near 1e-17 it
+    # declares convergence before taking a step. A constant factor moves
+    # neither the minimum nor, once rescaled by the scatter, the errors.
+    size = float(np.max(np.abs(residual)))
+    unweighted = np.full_like(xs, 1.0 / size if size > 0 else 1.0)
+
     weighted = False
-    weights = np.ones_like(xs)
+    weights = unweighted
     if sigma is not None:
         s = np.asarray(sigma, dtype=float)[inside]
         ok = np.isfinite(s) & (s > 0)
         weights = np.where(ok, 1.0 / np.where(ok, s, 1.0), 0.0)
         weighted = bool(np.any(weights > 0))
         if not weighted:
-            weights = np.ones_like(xs)
+            weights = unweighted
 
     # Weight the initial guess as well as the fit. Seeding on the largest raw
     # residual lets a pixel the sigma array says is worthless capture the
@@ -353,9 +360,13 @@ def fit_profile(wave, flux, sigma, x1: float, y1: float, x2: float, y2: float,
     errors = np.full(6, np.nan)
     chisq = float("nan")
     try:
+        # x_scale="jac" because the parameters live on unrelated scales: a
+        # centre near 5500 and an amplitude near 1e-17 for a cgs flux density.
+        # With unit scaling the solver judged the amplitude's steps negligible
+        # and stopped on the starting guess.
         solution = least_squares(
             lambda p: (model(p, xs) - residual) * weights, p0, method="trf",
-            bounds=(lo, hi), max_nfev=2000,
+            bounds=(lo, hi), max_nfev=2000, x_scale="jac",
         )
         params = solution.x
         rms = float(np.sqrt(np.mean((model(params, xs) - residual) ** 2)))
@@ -365,7 +376,7 @@ def fit_profile(wave, flux, sigma, x1: float, y1: float, x2: float, y2: float,
         dof = int(np.count_nonzero(weights > 0)) - len(params)
         if dof > 0:
             chi2 = float(np.sum(solution.fun ** 2))
-            cov = np.linalg.pinv(solution.jac.T @ solution.jac)
+            cov = _covariance(solution.jac)
             if weighted:
                 chisq = chi2 / dof
             else:
@@ -392,6 +403,20 @@ def fit_profile(wave, flux, sigma, x1: float, y1: float, x2: float, y2: float,
                       flux_err=float(errors[2]), eqw_err=float(errors[3]),
                       gfwhm_err=float(errors[4]), lfwhm_err=float(errors[5]),
                       at_bound=at_bound)
+
+
+def _covariance(jac) -> np.ndarray:
+    """``inv(J^T J)``, computed with each parameter's column normalised.
+
+    For a cgs flux density the amplitude's column is ~1e30 times the others,
+    and a pseudo-inverse of the raw product discards every direction but that
+    one as numerically zero. Normalising first keeps the conditioning down to
+    what the fit itself has.
+    """
+    norms = np.linalg.norm(jac, axis=0)
+    norms[norms == 0] = 1.0
+    scaled = jac / norms
+    return np.linalg.pinv(scaled.T @ scaled) / np.outer(norms, norms)
 
 
 def _propagate(measure, params, cov) -> np.ndarray:

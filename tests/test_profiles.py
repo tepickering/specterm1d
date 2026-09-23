@@ -343,3 +343,29 @@ def test_reduced_chi_square_counts_only_pixels_that_carry_weight():
     sigma[::2] = np.inf                 # half the pixels carry no information
     fit = fit_profile(wave, flux, sigma, 5460.0, 1.0, 5540.0, 1.0, "g")
     assert fit.chisq == pytest.approx(1.0, abs=0.15)
+
+
+# ---- the flux scale must not matter ----------------------------------
+
+@pytest.mark.parametrize("kind", ["g", "l", "v"])
+@pytest.mark.parametrize("with_sigma", [True, False])
+def test_a_flux_calibrated_spectrum_fits_like_a_normalised_one(kind, with_sigma):
+    # cgs flux densities sit near 1e-17. The bug: the solver stopped on its
+    # starting guess there, reporting the seed width (a tenth of the marked
+    # span) as the line's, while the same line at unit scale fitted fine.
+    wave = np.linspace(5450.0, 5550.0, 801)
+    noise = np.random.default_rng(2).normal(0.0, 0.15, wave.size)
+    line = 1.0 + gaussian(wave, 5500.0, 15.0, 2.0) + noise
+    fits = []
+    for scale in (1.0, 1e-17):
+        sigma = np.full(wave.size, 0.15 * scale) if with_sigma else None
+        fits.append(fit_profile(wave, line * scale, sigma, 5460.0, scale,
+                                5540.0, scale, kind))
+    unit, tiny = fits
+    assert tiny.center == pytest.approx(unit.center, abs=1e-3)
+    assert tiny.peak / 1e-17 == pytest.approx(unit.peak, rel=1e-3)
+    assert tiny.gfwhm == pytest.approx(unit.gfwhm, rel=1e-3, abs=1e-9)
+    assert tiny.lfwhm == pytest.approx(unit.lfwhm, rel=1e-3, abs=1e-9)
+    # nan_ok: a voigt on a pure gaussian pins its lorentzian width to zero,
+    # and a pinned fit quotes no errors - at either scale.
+    assert tiny.center_err == pytest.approx(unit.center_err, rel=1e-2, nan_ok=True)
