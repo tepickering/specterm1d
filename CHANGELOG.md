@@ -24,6 +24,9 @@ minor bump is where breaking changes live until 1.0.
 
 ### Changed
 
+- The edges of a measured region are drawn dashed, in the cursor's colour,
+  so they no longer look like a second cursor. Each dash is one terminal row
+  long; the `text` backend draws them crisp so every dash fills whole cells.
 - The profile-fit message calls the fitted peak height `ampl` rather than
   splot's `core`, which read as something other than the amplitude above the
   continuum it is.

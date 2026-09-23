@@ -348,6 +348,7 @@ class Session:
             title=self.title(),
             cursor_crosshair=bool(getattr(self.renderer, "inline_graphics", False)),
         )
+        request.cell_height_px = height / max(rect.rows, 1)
         rgba = self.plot.render(request)
         self.renderer.draw(rgba, rect)
         if layout is not None:

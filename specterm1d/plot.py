@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 
 import numpy as np
+from matplotlib import rcParams
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.ticker import LogLocator, MaxNLocator
@@ -359,10 +360,50 @@ class PlotRequest:
     xscale: str = "linear"
     yscale: str = "linear"
     fits: tuple[tuple[np.ndarray, np.ndarray], ...] = field(default_factory=tuple)
+    cell_height_px: float | None = None
+    """Figure pixels per terminal row, where the figure fills terminal rows.
+
+    Sets the fit markers' dash length: one row on, one row off, so the text
+    backend's 2x2-pixel cells show whole dashes rather than a smear.
+    """
+
+
+MARKER_LW = 0.7
+
+# Below this many figure pixels a terminal row - the text backend's two - the
+# fit markers are drawn unantialiased so that each dash fills whole cells.
+CRISP_CELL_PX = 4
+CRISP_PHASE_PX = 1.25
 
 
 class SpectrumPlot:
     """A persistent Agg figure rendered to an RGBA buffer."""
+
+    def _marker_dashes(self, cell_px: float | None, lw: float):
+        """One terminal row on, one off; matplotlib's own dashes with no rows.
+
+        The phase is set from the figure's top edge, which is where terminal
+        rows start, so each dash covers whole rows however the axes sit.
+        """
+        if not cell_px:
+            return "--"
+        height = self.fig.get_size_inches()[1] * self.dpi
+        # A line runs up from the axes' bottom edge; shift the pattern so its
+        # boundaries land on height - k * cell_px.
+        phase = (self.ax.get_position().y0 * height - height) % (2 * cell_px)
+        on = off = cell_px
+        if cell_px < CRISP_CELL_PX:
+            # Unantialiased Agg inks every pixel row a dash touches, so a dash
+            # exactly one cell long spills into the next cell. Pulling each end
+            # in by a quarter pixel and moving the pattern by CRISP_PHASE_PX
+            # centres it on its own rows: found by scanning, and the middle of
+            # a range a quarter pixel wide either way at every figure size.
+            on, off = cell_px - 0.5, cell_px + 0.5
+            phase += CRISP_PHASE_PX
+        to_units = 72.0 / self.dpi
+        if rcParams["lines.scale_dashes"]:      # patterns are in units of lw
+            to_units /= lw
+        return (phase * to_units, (on * to_units, off * to_units))
 
     def __init__(self, width_px: int, height_px: int, dpi: int = BASE_DPI,
                  bare: bool = False):
@@ -606,8 +647,15 @@ class SpectrumPlot:
         for fx, fy in req.fits:
             ax.plot(fx, fy, lw=1.0, color=palette.fit)
 
+        # Same colour as the cursor, dashed, so the edges of a measured region
+        # still read as the cursor's but cannot be mistaken for where it is.
+        dashes = self._marker_dashes(req.cell_height_px, MARKER_LW)
+        # At a few pixels a cell, antialiasing turns each dash end into a
+        # half-inked pixel, and the text backend's cells into a grey smear.
+        crisp = bool(req.cell_height_px) and req.cell_height_px < CRISP_CELL_PX
         for xm in req.markers:
-            ax.axvline(xm, color=palette.cursor, lw=0.7, alpha=0.6)
+            ax.axvline(xm, color=palette.cursor, lw=MARKER_LW, alpha=0.6,
+                       linestyle=dashes, antialiased=not crisp)
         if req.cursor is not None:
             ax.axvline(req.cursor[0], color=palette.cursor, lw=0.7, alpha=0.6)
             if req.cursor_crosshair and req.cursor[1] is not None:

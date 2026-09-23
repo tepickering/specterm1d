@@ -491,3 +491,67 @@ def test_a_frame_drawn_after_a_log_one_goes_back_to_linear():
                           yscale="log"))
     plot.draw(PlotRequest(spec=spec, xlim=(1.0, 3.0), ylim=(1.0, 100.0)))
     assert plot.ax.get_yscale() == "linear"
+
+
+# ---- fit-region markers are dashed, the cursor is not ---------------
+
+def _column_coverage(rgba, plot, x):
+    """Share of the axes' rows at data-x ``x`` that are not background."""
+    ax = plot.ax
+    col = round(ax.transData.transform((x, 0.0))[0])
+    bbox = ax.get_window_extent()
+    height = rgba.shape[0]
+    top = int(np.ceil(height - bbox.y1)) + 1
+    bottom = int(np.floor(height - bbox.y0)) - 1
+    background = rgba[top:bottom, col - 6].astype(int)
+    column = rgba[top:bottom, col - 1:col + 2].astype(int)
+    inked = np.abs(column - background[:, None, :]).sum(axis=(1, 2)) > 30
+    return inked, top
+
+
+def _marked_request(cell_height_px=None):
+    spec = build_spec(np.linspace(0.0, 4.0, 200), np.full(200, 10.0))  # off the axes
+    request = PlotRequest(spec=spec, xlim=(0.0, 4.0), ylim=(0.0, 3.0))
+    request.markers = (1.0,)
+    request.cursor = (3.0, None)
+    request.cell_height_px = cell_height_px
+    return request
+
+
+@pytest.mark.parametrize(("size", "cell", "bare"),
+                         [((160, 80), 2.0, True), ((1200, 700), 20.0, False)])
+def test_markers_are_dashed_one_terminal_row_on_one_off(size, cell, bare):
+    # The first is the text backend: 2x2 figure pixels a cell, no margins.
+    plot = SpectrumPlot(*size, bare=bare)
+    rgba = plot.render(_marked_request(cell))
+    marker, _ = _column_coverage(rgba, plot, 1.0)
+    cursor, _ = _column_coverage(rgba, plot, 3.0)
+    assert cursor.mean() > 0.95                     # the cursor stays solid
+    assert 0.35 < marker.mean() < 0.65              # half on, half off
+    # Runs of ink about one cell long: dashes, not a dotted smear.
+    edges = np.flatnonzero(np.diff(marker.astype(int)) != 0)
+    runs = np.diff(edges)
+    assert np.median(runs) == pytest.approx(cell, abs=max(1.0, 0.2 * cell))
+
+
+def test_markers_are_dashed_without_a_terminal_cell_too():
+    plot = SpectrumPlot(640, 400)
+    rgba = plot.render(_marked_request(None))
+    marker, _ = _column_coverage(rgba, plot, 1.0)
+    assert 0.3 < marker.mean() < 0.9
+
+
+@pytest.mark.parametrize("size", [(160, 80), (160, 82), (200, 46), (240, 118)])
+def test_text_backend_dashes_fill_whole_cells(size):
+    # Each terminal row is two figure pixels; a dash that splits one would
+    # show as a quarter-block smear rather than a dash.
+    plot = SpectrumPlot(*size, bare=True)
+    rgba = plot.render(_marked_request(2.0))
+    ax = plot.ax
+    col = round(ax.transData.transform((1.0, 0.0))[0])
+    rows = rgba[:, col - 1:col + 2, :3].astype(int)
+    background = rgba[:, col - 6, :3].astype(int)
+    inked = (np.abs(rows - background[:, None, :]).sum(axis=(1, 2)) > 30)
+    cells = inked.reshape(-1, 2)
+    assert np.all(cells[:, 0] == cells[:, 1])
+    assert 0.35 < inked.mean() < 0.65
