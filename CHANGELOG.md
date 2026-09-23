@@ -17,8 +17,9 @@ minor bump is where breaking changes live until 1.0.
   continuum was marked. The `splot.log` line is unchanged.
 - `h` width fits quote errors on the core, width, flux and eqw too,
   propagated from the pixels the measurement reads: the one under the cursor
-  and the pairs either side of each crossing. The centre and continuum are
-  the cursor's, so they carry none.
+  and the pairs either side of each crossing the mode uses. A pixel with no
+  usable sigma drops only the errors that depend on it. The centre and
+  continuum are the cursor's, so they carry none.
 - The `e` message quotes its errors the same way, as `eqw = 1.23 ± 0.04`, and
   now shows the flux error it was already computing.
 

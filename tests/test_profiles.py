@@ -481,3 +481,32 @@ def test_gauss_from_width_errors_skip_masked_pixels():
     sigma[~good] = np.inf              # masked and worthless: must not matter
     fit = gauss_from_width(wave, flux, 5500.0, 1.0, "c", sigma=sigma, good=good)
     assert np.isfinite(fit.gfwhm_err)
+
+
+def _worthless_near(wave, sigma, x, half_width=0.5):
+    sigma = sigma.copy()
+    sigma[np.abs(wave - x) <= half_width] = np.inf
+    return sigma
+
+
+@pytest.mark.parametrize(("mode", "unused_edge"), [("a", 5502.5), ("b", 5497.5)])
+def test_a_one_sided_width_ignores_the_other_crossing(mode, unused_edge):
+    # The line's half-depth crossings are at 5497.5 and 5502.5. A one-sided
+    # mode reads only one of them, so a worthless pixel at the other cannot
+    # cost it its errors.
+    wave, flux, sigma = _h_line(6)
+    sigma = _worthless_near(wave, sigma, unused_edge)
+    fit = gauss_from_width(wave, flux, 5500.0, 1.0, mode, sigma=sigma)
+    for err in (fit.peak_err, fit.gfwhm_err, fit.eqw_err, fit.flux_err):
+        assert np.isfinite(err)
+
+
+def test_a_worthless_crossing_pixel_costs_only_the_errors_it_feeds():
+    # The core is read off the cursor pixel alone, so it keeps its error when
+    # a crossing pixel has none; the width, flux and eqw do not.
+    wave, flux, sigma = _h_line(7)
+    sigma = _worthless_near(wave, sigma, 5502.5)
+    fit = gauss_from_width(wave, flux, 5500.0, 1.0, "c", sigma=sigma)
+    assert np.isfinite(fit.peak_err)
+    assert np.isnan(fit.gfwhm_err) and np.isnan(fit.eqw_err)
+    assert np.isnan(fit.flux_err)

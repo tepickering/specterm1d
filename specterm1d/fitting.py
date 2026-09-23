@@ -560,10 +560,14 @@ def _width_errors(wave, flux, sigma, x0, y0, mode, idx, left, right):
     Each pixel the measurement reads is nudged by a small fraction of its own
     sigma and the whole measurement repeated; the pixels are independent, so
     the variances add. A crossing is linear in its two bracketing pixels, and
-    in the half-depth modes the level itself moves with the core pixel.
+    in the half-depth modes the level itself moves with the core pixel. Only
+    the crossings the mode uses are read, and a pixel with no usable sigma
+    leaves undefined just the quantities that actually move with it.
     """
+    side = _WIDTH_SIDES[mode]
+    used = [c for c, s in ((left, "left"), (right, "right")) if side in (s, "full")]
     pixels = {idx}
-    for crossing in (left, right):
+    for crossing in used:
         if np.isfinite(crossing):
             i = int(np.searchsorted(wave, crossing))
             pixels.update(j for j in (i - 1, i) if 0 <= j < wave.size)
@@ -572,13 +576,18 @@ def _width_errors(wave, flux, sigma, x0, y0, mode, idx, left, right):
     work = flux.copy()
     for j in sorted(pixels):
         s = sigma[j]
-        if not (np.isfinite(s) and s > 0):
-            return np.full(4, np.nan)      # a pixel with no information
-        step = 1e-3 * s
+        known = np.isfinite(s) and s > 0
+        # Without a sigma, a step on the pixel's own scale still shows which
+        # quantities depend on it.
+        step = 1e-3 * s if known else 1e-6 * max(abs(flux[j]), 1e-300)
         work[j] = flux[j] + step
         up = np.array(_width_measure(wave, work, x0, y0, mode, idx)[:4])
         work[j] = flux[j] - step
         down = np.array(_width_measure(wave, work, x0, y0, mode, idx)[:4])
         work[j] = flux[j]
-        variance += ((up - down) / (2 * step) * s) ** 2
+        slope = (up - down) / (2 * step)
+        if known:
+            variance += (slope * s) ** 2
+        else:
+            variance[slope != 0] = np.nan
     return np.sqrt(variance)
