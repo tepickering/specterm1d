@@ -261,3 +261,36 @@ def test_h_reports_its_errors():
     assert re.search(r"  gfwhm=[0-9.e-]+ ± [0-9.e-]+", message)
     assert re.search(r"  eqw=-?[0-9.e-]+ ± [0-9.e-]+", message)
     assert "chi2_r" not in message
+
+
+def _h_at(session, x, y=6000.0):
+    session.view.cursor_y = y
+    for char in "hc":
+        session.handle(Key("char", char))
+    session.view.cursor_x = x
+    session.handle(Key("char", " "))
+
+
+def test_h_on_a_masked_pixel_says_so():
+    import numpy as np
+
+    session = _bad_continuum_session()
+    spec = session.view.current_spec()
+    spec.good[int(np.searchsorted(spec.wave, 5009.2))] = False
+    _h_at(session, 5009.2)
+    assert "masked" in session.last_message
+    assert not session.log.lines
+
+
+def test_h_uses_the_spectrum_mask():
+    import numpy as np
+
+    session = _bad_continuum_session()
+    spec = session.view.current_spec()
+    # A dropout to the continuum inside the half-maximum crossings of this
+    # emission line: unmasked, it would be found as the crossing.
+    spike = int(np.searchsorted(spec.wave, 5008.2))
+    spec.flux[spike] = 6000.0
+    spec.good[spike] = False
+    _h_at(session, 5009.2)
+    assert re.search(r"gfwhm=4\.0\d*", session.last_message)

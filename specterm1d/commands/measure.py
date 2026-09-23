@@ -182,8 +182,12 @@ def gauss_width(session):
         def done(inner, positions):
             x0, y0 = positions[0]
             spec = inner.view.display_spec()
+            pixel = int(np.clip(np.searchsorted(spec.wave, x0), 0, spec.npix - 1))
+            if not spec.good[pixel]:
+                inner.message("the pixel under the cursor is masked - move the cursor")
+                return
             fit = gauss_from_width(spec.wave, spec.flux, x0, y0, char,
-                                   sigma=spec.sigma)
+                                   sigma=spec.sigma, good=spec.good)
             if not np.isfinite(fit.gfwhm):
                 inner.message("could not measure a width at that level")
                 return

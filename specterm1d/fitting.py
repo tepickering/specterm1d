@@ -466,7 +466,7 @@ def _crossings(xs, ys, level: float, center: float):
 
 
 def gauss_from_width(wave, flux, x0: float, y0: float,
-                     mode: str = "c", sigma=None) -> ProfileFit:
+                     mode: str = "c", sigma=None, good=None) -> ProfileFit:
     """'h': build the Gaussian implied by a measured width.
 
     Modes a/b/c take the continuum from the cursor's y and measure at half
@@ -477,16 +477,28 @@ def gauss_from_width(wave, flux, x0: float, y0: float,
     the pixels they were read off: the one under the cursor and the pairs
     either side of each crossing. The centre and continuum are the cursor's,
     so they have none.
+
+    ``good`` is the mask. Masked pixels are skipped, so a crossing is found
+    across a masked gap rather than at it; a masked pixel under the cursor
+    is refused outright, since there is no core to measure.
     """
     wave = np.asarray(wave, dtype=float)
     flux = np.asarray(flux, dtype=float)
     nan = float("nan")
 
-    if mode not in _WIDTH_SIDES:
+    idx = int(np.clip(np.searchsorted(wave, x0), 0, wave.size - 1))
+    usable = np.isfinite(flux)
+    if good is not None:
+        usable &= np.asarray(good, dtype=bool)
+    if mode not in _WIDTH_SIDES or not usable[idx]:
         return ProfileFit(nan, nan, nan, nan, nan, nan, nan,
                           np.array([]), np.array([]))
 
-    idx = int(np.clip(np.searchsorted(wave, x0), 0, wave.size - 1))
+    # From here on only usable pixels exist; idx is the cursor pixel among them.
+    idx = int(np.count_nonzero(usable[:idx]))
+    wave, flux = wave[usable], flux[usable]
+    if sigma is not None:
+        sigma = np.asarray(sigma, dtype=float)[usable]
     cont = float(y0) if mode in "abc" else 1.0
     peak, area, eqw, width, left, right = _width_measure(wave, flux, x0, y0,
                                                          mode, idx)
@@ -497,8 +509,8 @@ def gauss_from_width(wave, flux, x0: float, y0: float,
 
     errors = np.full(4, nan)
     if sigma is not None:
-        errors = _width_errors(wave, flux, np.asarray(sigma, dtype=float),
-                               x0, y0, mode, idx, left, right)
+        errors = _width_errors(wave, flux, sigma, x0, y0, mode, idx,
+                               left, right)
 
     sigma_w = width / FWHM_PER_SIGMA
     model_x = np.linspace(x0 - 3 * width, x0 + 3 * width, 400)

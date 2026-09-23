@@ -39,6 +39,10 @@ minor bump is where breaking changes live until 1.0.
 - `k` profile fits now respect the spectrum's mask. Previously a masked pixel
   was only left out if its flux was not finite or its sigma infinite, so a
   flagged bad pixel with a healthy-looking error could pull the fit.
+- `h` width fits respect the mask too. Masked pixels are skipped when finding
+  the crossings, so a flagged dropout inside the line is no longer taken for
+  the line's edge, and a masked pixel under the cursor is refused with a
+  message rather than measured.
 - `k` profile fits work on flux-calibrated spectra. With cgs flux densities
   near 1e-17 the solver stopped on its starting guess and reported a tenth of
   the marked span as the line width; the parameters are now scaled for the

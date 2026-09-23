@@ -433,3 +433,51 @@ def test_gauss_from_width_with_a_worthless_pixel_quotes_no_error():
     sigma[int(np.searchsorted(wave, 5500.0))] = np.inf
     fit = gauss_from_width(wave, flux, 5500.0, 1.0, "c", sigma=sigma)
     assert np.isnan(fit.peak_err) and np.isnan(fit.gfwhm_err)
+
+
+# ---- h: the mask ------------------------------------------------------
+
+def _spiked_line():
+    """A clean line with a masked spike between the centre and the left
+    half-depth crossing, where it would be found as the crossing."""
+    wave = np.linspace(5450.0, 5550.0, 801)
+    flux = absorption(wave, centre=5500.0, fwhm=5.0, depth=0.5)
+    good = np.ones(wave.size, dtype=bool)
+    spike = int(np.searchsorted(wave, 5499.0))
+    flux[spike] = 2.0
+    good[spike] = False
+    return wave, flux, good
+
+
+@pytest.mark.parametrize("mode", ["a", "c", "k"])
+def test_gauss_from_width_skips_masked_pixels(mode):
+    wave, flux, good = _spiked_line()
+    y0 = 1.0 if mode in "abc" else 0.75
+    clean = gauss_from_width(wave, absorption(wave, centre=5500.0, fwhm=5.0,
+                                              depth=0.5), 5500.0, y0, mode)
+    fit = gauss_from_width(wave, flux, 5500.0, y0, mode, good=good)
+    assert fit.gfwhm == pytest.approx(clean.gfwhm, rel=0.01)
+
+
+def test_gauss_from_width_without_the_mask_is_fooled_by_the_spike():
+    # Guards the test above: the spike really does sit where it would matter.
+    wave, flux, _ = _spiked_line()
+    fit = gauss_from_width(wave, flux, 5500.0, 1.0, "c")
+    assert fit.gfwhm < 4.0
+
+
+def test_gauss_from_width_will_not_measure_from_a_masked_cursor_pixel():
+    wave = np.linspace(5450.0, 5550.0, 801)
+    flux = absorption(wave, centre=5500.0, fwhm=5.0, depth=0.5)
+    good = np.ones(wave.size, dtype=bool)
+    good[int(np.searchsorted(wave, 5500.0))] = False
+    fit = gauss_from_width(wave, flux, 5500.0, 1.0, "c", good=good)
+    assert np.isnan(fit.gfwhm) and np.isnan(fit.peak)
+
+
+def test_gauss_from_width_errors_skip_masked_pixels():
+    wave, flux, good = _spiked_line()
+    sigma = np.full(wave.size, 0.01)
+    sigma[~good] = np.inf              # masked and worthless: must not matter
+    fit = gauss_from_width(wave, flux, 5500.0, 1.0, "c", sigma=sigma, good=good)
+    assert np.isfinite(fit.gfwhm_err)
