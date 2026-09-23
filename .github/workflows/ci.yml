@@ -46,7 +46,11 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           cache: pip
-      - run: pip install -e '.[${{ matrix.extras }}]'
+      # Wheels only for numpy and scipy. When the resolver cannot place some
+      # other package it backtracks through older scipys until it reaches one
+      # with no wheel for this Python, then fails building it without OpenBLAS
+      # - an error that points at scipy rather than at the real conflict.
+      - run: pip install --only-binary=numpy,scipy -e '.[${{ matrix.extras }}]'
       - run: ${{ matrix.command }}
 
   package:
