@@ -466,38 +466,70 @@ def _crossings(xs, ys, level: float, center: float):
 
 
 def gauss_from_width(wave, flux, x0: float, y0: float,
-                     mode: str = "c") -> ProfileFit:
+                     mode: str = "c", sigma=None) -> ProfileFit:
     """'h': build the Gaussian implied by a measured width.
 
     Modes a/b/c take the continuum from the cursor's y and measure at half
     the line depth; modes l/r/k take a flux level relative to a normalized
     continuum of 1 and measure at that level.
+
+    With ``sigma`` the core, width, flux and eqw carry one-sigma errors from
+    the pixels they were read off: the one under the cursor and the pairs
+    either side of each crossing. The centre and continuum are the cursor's,
+    so they have none.
     """
     wave = np.asarray(wave, dtype=float)
     flux = np.asarray(flux, dtype=float)
-
-    half_modes = {"a": "left", "b": "right", "c": "full"}
-    level_modes = {"l": "left", "r": "right", "k": "full"}
     nan = float("nan")
 
-    idx = int(np.clip(np.searchsorted(wave, x0), 0, wave.size - 1))
-
-    if mode in half_modes:
-        cont = float(y0)
-        peak = float(flux[idx] - cont)
-        level = cont + peak / 2.0
-        side = half_modes[mode]
-    elif mode in level_modes:
-        cont = 1.0
-        peak = float(flux[idx] - cont)
-        level = float(y0)
-        side = level_modes[mode]
-    else:
+    if mode not in _WIDTH_SIDES:
         return ProfileFit(nan, nan, nan, nan, nan, nan, nan,
                           np.array([]), np.array([]))
 
-    left, right = _crossings(wave, flux, level, x0)
+    idx = int(np.clip(np.searchsorted(wave, x0), 0, wave.size - 1))
+    cont = float(y0) if mode in "abc" else 1.0
+    peak, area, eqw, width, left, right = _width_measure(wave, flux, x0, y0,
+                                                         mode, idx)
 
+    if not np.isfinite(width) or width <= 0 or peak == 0:
+        return ProfileFit(float(x0), cont, peak, nan, nan, nan, 0.0,
+                          np.array([]), np.array([]))
+
+    errors = np.full(4, nan)
+    if sigma is not None:
+        errors = _width_errors(wave, flux, np.asarray(sigma, dtype=float),
+                               x0, y0, mode, idx, left, right)
+
+    sigma_w = width / FWHM_PER_SIGMA
+    model_x = np.linspace(x0 - 3 * width, x0 + 3 * width, 400)
+    model_y = gaussian(model_x, x0, peak, sigma_w) + cont
+
+    return ProfileFit(center=float(x0), cont=cont, peak=peak, flux=float(area),
+                      eqw=float(eqw), gfwhm=float(width), lfwhm=0.0,
+                      model_x=model_x, model_y=model_y,
+                      peak_err=float(errors[0]), flux_err=float(errors[1]),
+                      eqw_err=float(errors[2]), gfwhm_err=float(errors[3]))
+
+
+# Which crossing each 'h' mode measures from.
+_WIDTH_SIDES = {"a": "left", "b": "right", "c": "full",
+                "l": "left", "r": "right", "k": "full"}
+
+
+def _width_measure(wave, flux, x0, y0, mode, idx):
+    """core, area, eqw and width for one 'h' mode, plus the crossings used."""
+    nan = float("nan")
+    if mode in "abc":
+        cont = float(y0)
+        peak = float(flux[idx] - cont)
+        level = cont + peak / 2.0
+    else:
+        cont = 1.0
+        peak = float(flux[idx] - cont)
+        level = float(y0)
+    side = _WIDTH_SIDES[mode]
+
+    left, right = _crossings(wave, flux, level, x0)
     if side == "left":
         width = 2.0 * (x0 - left) if np.isfinite(left) else nan
     elif side == "right":
@@ -505,17 +537,36 @@ def gauss_from_width(wave, flux, x0: float, y0: float,
     else:
         width = (right - left) if np.isfinite(left) and np.isfinite(right) else nan
 
-    if not np.isfinite(width) or width <= 0 or peak == 0:
-        return ProfileFit(float(x0), cont, peak, nan, nan, nan, 0.0,
-                          np.array([]), np.array([]))
-
-    sigma_w = width / FWHM_PER_SIGMA
-    area = peak * sigma_w * np.sqrt(2.0 * np.pi)
+    area = peak * width / FWHM_PER_SIGMA * np.sqrt(2.0 * np.pi)
     eqw = -area / cont if cont != 0 else nan
+    return peak, area, eqw, width, left, right
 
-    model_x = np.linspace(x0 - 3 * width, x0 + 3 * width, 400)
-    model_y = gaussian(model_x, x0, peak, sigma_w) + cont
 
-    return ProfileFit(center=float(x0), cont=cont, peak=peak, flux=float(area),
-                      eqw=float(eqw), gfwhm=float(width), lfwhm=0.0,
-                      model_x=model_x, model_y=model_y)
+def _width_errors(wave, flux, sigma, x0, y0, mode, idx, left, right):
+    """One-sigma errors on core, area, eqw and width for an 'h' measurement.
+
+    Each pixel the measurement reads is nudged by a small fraction of its own
+    sigma and the whole measurement repeated; the pixels are independent, so
+    the variances add. A crossing is linear in its two bracketing pixels, and
+    in the half-depth modes the level itself moves with the core pixel.
+    """
+    pixels = {idx}
+    for crossing in (left, right):
+        if np.isfinite(crossing):
+            i = int(np.searchsorted(wave, crossing))
+            pixels.update(j for j in (i - 1, i) if 0 <= j < wave.size)
+
+    variance = np.zeros(4)
+    work = flux.copy()
+    for j in sorted(pixels):
+        s = sigma[j]
+        if not (np.isfinite(s) and s > 0):
+            return np.full(4, np.nan)      # a pixel with no information
+        step = 1e-3 * s
+        work[j] = flux[j] + step
+        up = np.array(_width_measure(wave, work, x0, y0, mode, idx)[:4])
+        work[j] = flux[j] - step
+        down = np.array(_width_measure(wave, work, x0, y0, mode, idx)[:4])
+        work[j] = flux[j]
+        variance += ((up - down) / (2 * step) * s) ** 2
+    return np.sqrt(variance)

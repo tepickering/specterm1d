@@ -248,3 +248,16 @@ def test_the_bounds_warning_survives_the_wrap_at_80_columns():
         session.handle(Key("char", " "))
     shown = "  ".join(wrap_message(session.last_message, 80))
     assert "check the continuum" in shown
+
+
+def test_h_reports_its_errors():
+    session = _bad_continuum_session()
+    session.view.cursor_y = 6000.0
+    for char in "hc":
+        session.handle(Key("char", char))
+    session.view.cursor_x = 5009.2
+    session.handle(Key("char", " "))
+    message = session.last_message
+    assert re.search(r"  gfwhm=[0-9.e-]+ ± [0-9.e-]+", message)
+    assert re.search(r"  eqw=-?[0-9.e-]+ ± [0-9.e-]+", message)
+    assert "chi2_r" not in message

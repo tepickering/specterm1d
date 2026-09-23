@@ -182,7 +182,8 @@ def gauss_width(session):
         def done(inner, positions):
             x0, y0 = positions[0]
             spec = inner.view.display_spec()
-            fit = gauss_from_width(spec.wave, spec.flux, x0, y0, char)
+            fit = gauss_from_width(spec.wave, spec.flux, x0, y0, char,
+                                   sigma=spec.sigma)
             if not np.isfinite(fit.gfwhm):
                 inner.message("could not measure a width at that level")
                 return

@@ -369,3 +369,67 @@ def test_a_flux_calibrated_spectrum_fits_like_a_normalised_one(kind, with_sigma)
     # nan_ok: a voigt on a pure gaussian pins its lorentzian width to zero,
     # and a pinned fit quotes no errors - at either scale.
     assert tiny.center_err == pytest.approx(unit.center_err, rel=1e-2, nan_ok=True)
+
+
+# ---- h: errors on a width measured from the data ---------------------
+
+def _h_line(seed, noise=0.01):
+    rng = np.random.default_rng(seed)
+    wave = np.linspace(5450.0, 5550.0, 801)
+    flux = absorption(wave, centre=5500.0, fwhm=5.0, depth=0.5)
+    return wave, flux + rng.normal(0.0, noise, wave.size), np.full(wave.size, noise)
+
+
+@pytest.mark.parametrize("mode", ["a", "c", "k"])
+def test_gauss_from_width_quotes_errors_when_sigma_exists(mode):
+    wave, flux, sigma = _h_line(1)
+    y0 = 1.0 if mode in "abc" else 0.75
+    fit = gauss_from_width(wave, flux, 5500.0, y0, mode, sigma=sigma)
+    for err in (fit.peak_err, fit.flux_err, fit.eqw_err, fit.gfwhm_err):
+        assert np.isfinite(err) and err > 0
+    assert np.isnan(fit.center_err)        # the centre is the cursor, not a measurement
+
+
+def test_gauss_from_width_quotes_no_errors_without_sigma():
+    wave, flux, _ = _h_line(1)
+    fit = gauss_from_width(wave, flux, 5500.0, 1.0, "c")
+    assert np.isnan(fit.gfwhm_err) and np.isnan(fit.eqw_err)
+
+
+def test_gauss_from_width_core_error_is_the_pixel_sigma():
+    # In the level modes the core is one pixel minus a fixed continuum.
+    wave, flux, sigma = _h_line(2)
+    sigma = sigma * np.linspace(1.0, 2.0, wave.size)
+    fit = gauss_from_width(wave, flux, 5500.0, 0.75, "k", sigma=sigma)
+    idx = int(np.searchsorted(wave, 5500.0))
+    assert fit.peak_err == pytest.approx(sigma[idx], rel=1e-6)
+
+
+@pytest.mark.parametrize("mode", ["c", "k"])
+def test_gauss_from_width_errors_match_the_scatter_between_draws(mode):
+    y0 = 1.0 if mode == "c" else 0.75
+    fits = []
+    for seed in range(300):
+        wave, flux, sigma = _h_line(seed)
+        fits.append(gauss_from_width(wave, flux, 5500.0, y0, mode, sigma=sigma))
+    for value, err in (("gfwhm", "gfwhm_err"), ("eqw", "eqw_err"),
+                       ("peak", "peak_err")):
+        scatter = np.std([getattr(f, value) for f in fits])
+        quoted = np.median([getattr(f, err) for f in fits])
+        assert quoted == pytest.approx(scatter, rel=0.2)
+
+
+def test_gauss_from_width_errors_scale_with_sigma():
+    wave, flux, sigma = _h_line(4)
+    one = gauss_from_width(wave, flux, 5500.0, 1.0, "c", sigma=sigma)
+    two = gauss_from_width(wave, flux, 5500.0, 1.0, "c", sigma=2 * sigma)
+    assert two.gfwhm_err == pytest.approx(2 * one.gfwhm_err, rel=1e-3)
+    assert two.gfwhm == one.gfwhm
+
+
+def test_gauss_from_width_with_a_worthless_pixel_quotes_no_error():
+    wave, flux, sigma = _h_line(5)
+    sigma = sigma.copy()
+    sigma[int(np.searchsorted(wave, 5500.0))] = np.inf
+    fit = gauss_from_width(wave, flux, 5500.0, 1.0, "c", sigma=sigma)
+    assert np.isnan(fit.peak_err) and np.isnan(fit.gfwhm_err)
