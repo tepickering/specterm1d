@@ -351,6 +351,10 @@ working:
 avg:        1.5  rms:       0.25   snr:     6.00
 ```
 
+The `core` column keeps splot's name but is the same value the profile-fit
+message calls `ampl`: the fitted peak height above the marked continuum,
+negative for an absorption line.
+
 `:nolog` stops writing, `:log` resumes, and `:# some text` adds a comment.
 
 ## Batch use

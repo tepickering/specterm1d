@@ -12,7 +12,7 @@ from specterm1d import theme
 from specterm1d.io import registry
 from specterm1d.logfile import SplotLog
 from specterm1d.plot import SpectrumPlot
-from specterm1d.session import Session
+from specterm1d.session import FOOTER_ROWS, Session
 from specterm1d.term import caps as caps_mod
 
 RENDERERS = ("kitty", "iterm2", "sixel", "gui", "text")
@@ -150,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     renderer = caps_mod.choose_renderer(caps, override=choice, out=sys.stdout)
-    width, height = renderer.target_pixels(caps.rows - 2, caps.cols)
+    width, height = renderer.target_pixels(caps.rows - FOOTER_ROWS, caps.cols)
     plot = SpectrumPlot(width, height)
     renderer = attach_or_fall_back(renderer, plot, caps, out=sys.stdout)
     # After the fallback, not before: a window that refused to open leaves the

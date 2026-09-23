@@ -1,7 +1,10 @@
 # tests/test_measure.py
+import re
+
 import pytest
 
 import specterm1d.commands  # noqa: F401
+from specterm1d.commands.measure import format_measure
 from specterm1d.term.input import Key
 from tests.test_session import make_session
 
@@ -128,7 +131,7 @@ def test_a_saturated_fit_is_still_reported_and_logged():
     for x in (4995.0, 5025.0):
         session.view.cursor_x = x
         session.handle(Key("char", " "))
-    assert "center" in session.last_message
+    assert "cen=" in session.last_message
     assert session.log.lines
 
 
@@ -141,3 +144,153 @@ def test_a_good_fit_carries_no_warning():
         session.view.cursor_x = x
         session.handle(Key("char", " "))
     assert "check the continuum" not in session.last_message
+
+
+def test_a_good_fit_reports_its_uncertainties_and_chi_square():
+    session = _bad_continuum_session()
+    session.view.cursor_y = 6000.0
+    for char in "kg":
+        session.handle(Key("char", char))
+    for x in (4995.0, 5025.0):
+        session.view.cursor_x = x
+        session.handle(Key("char", " "))
+    message = session.last_message
+    assert re.search(r"cen=5009\.2\d* ± [0-9.e-]+(  |$)", message)
+    assert re.search(r"  eqw=-?[0-9.e-]+ ± [0-9.e-]+(  |$)", message)
+    assert re.search(r"  ampl=-?[0-9.e-]+ ± [0-9.e-]+(  |$)", message)
+    assert re.search(r"  chi2_r=[0-9.e-]+", message)
+    assert "core" not in message and "center" not in message
+    assert "lfwhm" not in message                  # a gaussian has none
+    assert "   " not in message                    # no fixed-width padding
+    assert "+/-" not in message
+
+
+def test_a_fit_without_errors_shows_no_plus_minus():
+    session = _bad_continuum_session()
+    session.view.cursor_y = 2144858.0          # a fit pinned to its bounds
+    for char in "kg":
+        session.handle(Key("char", char))
+    for x in (4995.0, 5025.0):
+        session.view.cursor_x = x
+        session.handle(Key("char", " "))
+    assert "±" not in session.last_message
+
+
+def test_the_profile_fit_uses_the_spectrum_mask():
+    import numpy as np
+
+    session = _bad_continuum_session()
+    spec = session.view.current_spec()
+    near = np.abs(spec.wave - 5000.0) < 0.3
+    spec.flux[near] += 3e6              # a bad-pixel spike...
+    spec.good[near] = False             # ...that the mask flags
+    session.view.cursor_y = 6000.0
+    for char in "kg":
+        session.handle(Key("char", char))
+    for x in (4995.0, 5025.0):
+        session.view.cursor_x = x
+        session.handle(Key("char", " "))
+    assert "cen=5009.2" in session.last_message
+
+
+def test_e_quotes_its_errors_inline():
+    session = _bad_continuum_session()
+    session.handle(Key("char", "e"))
+    mark(session, 4995.0, 6000.0)
+    mark(session, 5025.0, 6000.0)
+    message = session.last_message
+    assert re.search(r"  eqw=-?[0-9.e-]+ ± [0-9.e-]+  ", message)
+    assert re.search(r"  cont=6000  ", message)
+    assert re.search(r"  flux=-?[0-9.e-]+ ± [0-9.e-]+$", message)
+    assert "+/-" not in message and "   " not in message
+
+
+def test_e_without_sigma_shows_no_plus_minus():
+    session, _ = make_session()
+    session.handle(Key("char", "e"))
+    mark(session, 5200.0, 2.0)
+    mark(session, 5400.0, 2.0)
+    assert "±" not in session.last_message
+
+
+
+# ---- values are quoted to the precision their errors support --------
+
+@pytest.mark.parametrize(("value", "err", "sig", "text"), [
+    (5500.0061, 0.0234, 7, "5500.006 ± 0.023"),       # rounded to the error
+    (2.48213, 0.0241, 4, "2.482 ± 0.024"),
+    (-0.47372, 0.00451, 6, "-0.4737 ± 0.0045"),
+    (1832571.0, 159.0, 6, "1.83257e6 ± 160"),         # error to two figures
+    (1.8279e-15, 3.71e-18, 6, "1.8279e-15 ± 3.7e-18"),
+    (9.996, 0.0213, 4, "9.996 ± 0.021"),
+    (9.9996, 0.213, 4, "10.00 ± 0.21"),               # rounding carries a digit
+    (5500.000012, 0.00017, 7, "5500.000 ± 0.00017"),  # never past sig figures
+    (3.0, 51.0, 4, "3 ± 51"),                         # error bigger than value
+    (0.0, 0.012, 4, "0.000 ± 0.012"),
+    (5009.2, float("nan"), 7, "5009.2"),              # no error: sig figures
+    (1.83235e7, float("nan"), 6, "1.83235e7"),
+    (float("nan"), 0.1, 4, "nan"),
+])
+def test_format_measure(value, err, sig, text):
+    assert format_measure(value, err, sig) == text
+
+
+def test_the_bounds_warning_survives_the_wrap_at_80_columns():
+    from specterm1d.session import wrap_message
+
+    # A voigt has the most fields, so it is the one that spills furthest.
+    session = _bad_continuum_session()
+    session.view.cursor_y = 2144858.0
+    for char in "kv":
+        session.handle(Key("char", char))
+    for x in (4995.0, 5025.0):
+        session.view.cursor_x = x
+        session.handle(Key("char", " "))
+    shown = "  ".join(wrap_message(session.last_message, 80))
+    assert "check the continuum" in shown
+
+
+def test_h_reports_its_errors():
+    session = _bad_continuum_session()
+    session.view.cursor_y = 6000.0
+    for char in "hc":
+        session.handle(Key("char", char))
+    session.view.cursor_x = 5009.2
+    session.handle(Key("char", " "))
+    message = session.last_message
+    assert re.search(r"  gfwhm=[0-9.e-]+ ± [0-9.e-]+", message)
+    assert re.search(r"  eqw=-?[0-9.e-]+ ± [0-9.e-]+", message)
+    assert "chi2_r" not in message
+
+
+def _h_at(session, x, y=6000.0):
+    session.view.cursor_y = y
+    for char in "hc":
+        session.handle(Key("char", char))
+    session.view.cursor_x = x
+    session.handle(Key("char", " "))
+
+
+def test_h_on_a_masked_pixel_says_so():
+    import numpy as np
+
+    session = _bad_continuum_session()
+    spec = session.view.current_spec()
+    spec.good[int(np.searchsorted(spec.wave, 5009.2))] = False
+    _h_at(session, 5009.2)
+    assert "masked" in session.last_message
+    assert not session.log.lines
+
+
+def test_h_uses_the_spectrum_mask():
+    import numpy as np
+
+    session = _bad_continuum_session()
+    spec = session.view.current_spec()
+    # A dropout to the continuum inside the half-maximum crossings of this
+    # emission line: unmasked, it would be found as the crossing.
+    spike = int(np.searchsorted(spec.wave, 5008.2))
+    spec.flux[spike] = 6000.0
+    spec.good[spike] = False
+    _h_at(session, 5009.2)
+    assert re.search(r"gfwhm=4\.0\d*", session.last_message)

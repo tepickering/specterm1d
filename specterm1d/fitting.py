@@ -203,6 +203,14 @@ class ProfileFit:
     model_x: np.ndarray
     model_y: np.ndarray
     rms: float = float("nan")
+    chisq: float = float("nan")
+    """Reduced chi-square, when the spectrum carries errors to compute it."""
+    center_err: float = float("nan")
+    peak_err: float = float("nan")
+    flux_err: float = float("nan")
+    eqw_err: float = float("nan")
+    gfwhm_err: float = float("nan")
+    lfwhm_err: float = float("nan")
     at_bound: str = ""
     """Which parameters the solver pinned to a limit, if any.
 
@@ -244,8 +252,14 @@ def _ramp(x, x1, y1, x2, y2):
 
 
 def fit_profile(wave, flux, sigma, x1: float, y1: float, x2: float, y2: float,
-                kind: str = "g") -> ProfileFit:
-    """Fit one line profile over a linear continuum between two cursor points."""
+                kind: str = "g", good=None) -> ProfileFit:
+    """Fit one line profile over a linear continuum between two cursor points.
+
+    ``good`` is the spectrum's mask, True where a pixel may be used. With
+    ``sigma`` the fit minimises chi-square and the quoted errors take sigma at
+    its word; without it they are scaled by the scatter of the residuals.
+    Neither includes the uncertainty in where the continuum was marked.
+    """
     wave = np.asarray(wave, dtype=float)
     flux = np.asarray(flux, dtype=float)
     if x2 < x1:
@@ -253,6 +267,8 @@ def fit_profile(wave, flux, sigma, x1: float, y1: float, x2: float, y2: float,
         y1, y2 = y2, y1
 
     inside = (wave >= x1) & (wave <= x2) & np.isfinite(flux)
+    if good is not None:
+        inside &= np.asarray(good, dtype=bool)
     xs, ys = wave[inside], flux[inside]
     if xs.size < 4:
         nan = float("nan")
@@ -262,13 +278,22 @@ def fit_profile(wave, flux, sigma, x1: float, y1: float, x2: float, y2: float,
     continuum = _ramp(xs, x1, y1, x2, y2)
     residual = ys - continuum
 
-    weights = np.ones_like(xs)
+    # Without errors, residuals are divided by the line's own size instead:
+    # the solver's tolerances are absolute, and on residuals near 1e-17 it
+    # declares convergence before taking a step. A constant factor moves
+    # neither the minimum nor, once rescaled by the scatter, the errors.
+    size = float(np.max(np.abs(residual)))
+    unweighted = np.full_like(xs, 1.0 / size if size > 0 else 1.0)
+
+    weighted = False
+    weights = unweighted
     if sigma is not None:
         s = np.asarray(sigma, dtype=float)[inside]
         ok = np.isfinite(s) & (s > 0)
         weights = np.where(ok, 1.0 / np.where(ok, s, 1.0), 0.0)
-        if not np.any(weights > 0):
-            weights = np.ones_like(xs)
+        weighted = bool(np.any(weights > 0))
+        if not weighted:
+            weights = unweighted
 
     # Weight the initial guess as well as the fit. Seeding on the largest raw
     # residual lets a pixel the sigma array says is worthless capture the
@@ -313,46 +338,109 @@ def fit_profile(wave, flux, sigma, x1: float, y1: float, x2: float, y2: float,
 
     names = ("centre", "amplitude", *widths)
     p0 = list(np.clip(p0, lo, hi))
+    model_x = np.linspace(x1, x2, min(max(xs.size, 64), 2000))
 
+    def measure(p):
+        """centre, amplitude, flux, eqw, gfwhm, lfwhm from a parameter vector."""
+        center, amplitude = float(p[0]), float(p[1])
+        if kind == "g":
+            gfwhm, lfwhm = abs(p[2]) * FWHM_PER_SIGMA, 0.0
+            area = amplitude * abs(p[2]) * np.sqrt(2.0 * np.pi)
+        elif kind == "l":
+            gfwhm, lfwhm = 0.0, abs(p[2]) * 2.0
+            area = amplitude * abs(p[2]) * np.pi
+        else:
+            gfwhm, lfwhm = abs(p[2]) * FWHM_PER_SIGMA, abs(p[3]) * 2.0
+            # On the model's own grid, so masked gaps in xs cannot eat area.
+            area = np.trapezoid(model(p, model_x), model_x)
+        cont = float(_ramp(np.array([center]), x1, y1, x2, y2)[0])
+        eqw = -area / cont if cont != 0 else float("nan")
+        return np.array([center, amplitude, area, eqw, gfwhm, lfwhm], dtype=float)
+
+    errors = np.full(6, np.nan)
+    chisq = float("nan")
     try:
+        # x_scale="jac" because the parameters live on unrelated scales: a
+        # centre near 5500 and an amplitude near 1e-17 for a cgs flux density.
+        # With unit scaling the solver judged the amplitude's steps negligible
+        # and stopped on the starting guess.
         solution = least_squares(
             lambda p: (model(p, xs) - residual) * weights, p0, method="trf",
-            bounds=(lo, hi), max_nfev=2000,
+            bounds=(lo, hi), max_nfev=2000, x_scale="jac",
         )
         params = solution.x
         rms = float(np.sqrt(np.mean((model(params, xs) - residual) ** 2)))
+
+        # Only pixels that carry weight count towards the degrees of freedom:
+        # a pixel with infinite sigma is no more data than a masked one.
+        dof = int(np.count_nonzero(weights > 0)) - len(params)
+        if dof > 0:
+            chi2 = float(np.sum(solution.fun ** 2))
+            cov = _covariance(solution.jac)
+            if weighted:
+                chisq = chi2 / dof
+            else:
+                cov *= chi2 / dof
+            errors = _propagate(measure, params, cov)
     except Exception:
         params = np.array(p0, dtype=float)
         rms = float("nan")
 
     at_bound = _pinned(params, lo, hi, names)
+    if at_bound:
+        # A pinned parameter's curvature describes the wall, not the data.
+        errors = np.full(6, np.nan)
 
-    center = float(params[0])
-    amplitude = float(params[1])
-
-    if kind == "g":
-        gfwhm = float(abs(params[2]) * FWHM_PER_SIGMA)
-        lfwhm = 0.0
-        area = amplitude * abs(params[2]) * np.sqrt(2.0 * np.pi)
-    elif kind == "l":
-        gfwhm = 0.0
-        lfwhm = float(abs(params[2]) * 2.0)
-        area = amplitude * abs(params[2]) * np.pi
-    else:
-        gfwhm = float(abs(params[2]) * FWHM_PER_SIGMA)
-        lfwhm = float(abs(params[3]) * 2.0)
-        area = float(np.trapezoid(model(params, xs), xs))
-
+    center, amplitude, area, eqw, gfwhm, lfwhm = measure(params)
     cont_at_center = float(_ramp(np.array([center]), x1, y1, x2, y2)[0])
-    eqw = -area / cont_at_center if cont_at_center != 0 else float("nan")
-
-    model_x = np.linspace(x1, x2, min(max(xs.size, 64), 2000))
     model_y = model(params, model_x) + _ramp(model_x, x1, y1, x2, y2)
 
     return ProfileFit(center=center, cont=cont_at_center, peak=amplitude,
-                      flux=float(area), eqw=float(eqw), gfwhm=gfwhm,
-                      lfwhm=lfwhm, model_x=model_x, model_y=model_y, rms=rms,
+                      flux=float(area), eqw=float(eqw), gfwhm=float(gfwhm),
+                      lfwhm=float(lfwhm), model_x=model_x, model_y=model_y,
+                      rms=rms, chisq=chisq,
+                      center_err=float(errors[0]), peak_err=float(errors[1]),
+                      flux_err=float(errors[2]), eqw_err=float(errors[3]),
+                      gfwhm_err=float(errors[4]), lfwhm_err=float(errors[5]),
                       at_bound=at_bound)
+
+
+def _covariance(jac) -> np.ndarray:
+    """``inv(J^T J)``, computed with each parameter's column normalised.
+
+    For a cgs flux density the amplitude's column is ~1e30 times the others,
+    and a pseudo-inverse of the raw product discards every direction but that
+    one as numerically zero. Normalising first keeps the conditioning down to
+    what the fit itself has.
+    """
+    norms = np.linalg.norm(jac, axis=0)
+    norms[norms == 0] = 1.0
+    scaled = jac / norms
+    return np.linalg.pinv(scaled.T @ scaled) / np.outer(norms, norms)
+
+
+def _propagate(measure, params, cov) -> np.ndarray:
+    """One-sigma errors on ``measure(params)`` from the parameter covariance.
+
+    Central differences stepped by a small fraction of each parameter's own
+    error, which keeps the step in proportion whatever its units.
+    """
+    params = np.asarray(params, dtype=float)
+    scale = np.sqrt(np.clip(np.diag(cov), 0.0, None))
+    grad = np.zeros((measure(params).size, params.size))
+    for i, step in enumerate(scale * 1e-3):
+        if not np.isfinite(step) or step == 0:
+            continue
+        up, down = params.copy(), params.copy()
+        up[i] += step
+        down[i] -= step
+        grad[:, i] = (measure(up) - measure(down)) / (2 * step)
+    variance = np.einsum("ij,jk,ik->i", grad, cov, grad)
+    errors = np.sqrt(np.clip(variance, 0.0, None))
+    # A quantity the fit cannot move at all (lfwhm for a gaussian) has no
+    # error to speak of, rather than an error of exactly zero.
+    errors[~grad.any(axis=1)] = np.nan
+    return errors
 
 
 def _crossings(xs, ys, level: float, center: float):
@@ -378,38 +466,82 @@ def _crossings(xs, ys, level: float, center: float):
 
 
 def gauss_from_width(wave, flux, x0: float, y0: float,
-                     mode: str = "c") -> ProfileFit:
+                     mode: str = "c", sigma=None, good=None) -> ProfileFit:
     """'h': build the Gaussian implied by a measured width.
 
     Modes a/b/c take the continuum from the cursor's y and measure at half
     the line depth; modes l/r/k take a flux level relative to a normalized
     continuum of 1 and measure at that level.
+
+    With ``sigma`` the core, width, flux and eqw carry one-sigma errors from
+    the pixels they were read off: the one under the cursor and the pairs
+    either side of each crossing. The centre and continuum are the cursor's,
+    so they have none.
+
+    ``good`` is the mask. Masked pixels are skipped, so a crossing is found
+    across a masked gap rather than at it; a masked pixel under the cursor
+    is refused outright, since there is no core to measure.
     """
     wave = np.asarray(wave, dtype=float)
     flux = np.asarray(flux, dtype=float)
-
-    half_modes = {"a": "left", "b": "right", "c": "full"}
-    level_modes = {"l": "left", "r": "right", "k": "full"}
     nan = float("nan")
 
     idx = int(np.clip(np.searchsorted(wave, x0), 0, wave.size - 1))
-
-    if mode in half_modes:
-        cont = float(y0)
-        peak = float(flux[idx] - cont)
-        level = cont + peak / 2.0
-        side = half_modes[mode]
-    elif mode in level_modes:
-        cont = 1.0
-        peak = float(flux[idx] - cont)
-        level = float(y0)
-        side = level_modes[mode]
-    else:
+    usable = np.isfinite(flux)
+    if good is not None:
+        usable &= np.asarray(good, dtype=bool)
+    if mode not in _WIDTH_SIDES or not usable[idx]:
         return ProfileFit(nan, nan, nan, nan, nan, nan, nan,
                           np.array([]), np.array([]))
 
-    left, right = _crossings(wave, flux, level, x0)
+    # From here on only usable pixels exist; idx is the cursor pixel among them.
+    idx = int(np.count_nonzero(usable[:idx]))
+    wave, flux = wave[usable], flux[usable]
+    if sigma is not None:
+        sigma = np.asarray(sigma, dtype=float)[usable]
+    cont = float(y0) if mode in "abc" else 1.0
+    peak, area, eqw, width, left, right = _width_measure(wave, flux, x0, y0,
+                                                         mode, idx)
 
+    if not np.isfinite(width) or width <= 0 or peak == 0:
+        return ProfileFit(float(x0), cont, peak, nan, nan, nan, 0.0,
+                          np.array([]), np.array([]))
+
+    errors = np.full(4, nan)
+    if sigma is not None:
+        errors = _width_errors(wave, flux, sigma, x0, y0, mode, idx,
+                               left, right)
+
+    sigma_w = width / FWHM_PER_SIGMA
+    model_x = np.linspace(x0 - 3 * width, x0 + 3 * width, 400)
+    model_y = gaussian(model_x, x0, peak, sigma_w) + cont
+
+    return ProfileFit(center=float(x0), cont=cont, peak=peak, flux=float(area),
+                      eqw=float(eqw), gfwhm=float(width), lfwhm=0.0,
+                      model_x=model_x, model_y=model_y,
+                      peak_err=float(errors[0]), flux_err=float(errors[1]),
+                      eqw_err=float(errors[2]), gfwhm_err=float(errors[3]))
+
+
+# Which crossing each 'h' mode measures from.
+_WIDTH_SIDES = {"a": "left", "b": "right", "c": "full",
+                "l": "left", "r": "right", "k": "full"}
+
+
+def _width_measure(wave, flux, x0, y0, mode, idx):
+    """core, area, eqw and width for one 'h' mode, plus the crossings used."""
+    nan = float("nan")
+    if mode in "abc":
+        cont = float(y0)
+        peak = float(flux[idx] - cont)
+        level = cont + peak / 2.0
+    else:
+        cont = 1.0
+        peak = float(flux[idx] - cont)
+        level = float(y0)
+    side = _WIDTH_SIDES[mode]
+
+    left, right = _crossings(wave, flux, level, x0)
     if side == "left":
         width = 2.0 * (x0 - left) if np.isfinite(left) else nan
     elif side == "right":
@@ -417,17 +549,45 @@ def gauss_from_width(wave, flux, x0: float, y0: float,
     else:
         width = (right - left) if np.isfinite(left) and np.isfinite(right) else nan
 
-    if not np.isfinite(width) or width <= 0 or peak == 0:
-        return ProfileFit(float(x0), cont, peak, nan, nan, nan, 0.0,
-                          np.array([]), np.array([]))
-
-    sigma_w = width / FWHM_PER_SIGMA
-    area = peak * sigma_w * np.sqrt(2.0 * np.pi)
+    area = peak * width / FWHM_PER_SIGMA * np.sqrt(2.0 * np.pi)
     eqw = -area / cont if cont != 0 else nan
+    return peak, area, eqw, width, left, right
 
-    model_x = np.linspace(x0 - 3 * width, x0 + 3 * width, 400)
-    model_y = gaussian(model_x, x0, peak, sigma_w) + cont
 
-    return ProfileFit(center=float(x0), cont=cont, peak=peak, flux=float(area),
-                      eqw=float(eqw), gfwhm=float(width), lfwhm=0.0,
-                      model_x=model_x, model_y=model_y)
+def _width_errors(wave, flux, sigma, x0, y0, mode, idx, left, right):
+    """One-sigma errors on core, area, eqw and width for an 'h' measurement.
+
+    Each pixel the measurement reads is nudged by a small fraction of its own
+    sigma and the whole measurement repeated; the pixels are independent, so
+    the variances add. A crossing is linear in its two bracketing pixels, and
+    in the half-depth modes the level itself moves with the core pixel. Only
+    the crossings the mode uses are read, and a pixel with no usable sigma
+    leaves undefined just the quantities that actually move with it.
+    """
+    side = _WIDTH_SIDES[mode]
+    used = [c for c, s in ((left, "left"), (right, "right")) if side in (s, "full")]
+    pixels = {idx}
+    for crossing in used:
+        if np.isfinite(crossing):
+            i = int(np.searchsorted(wave, crossing))
+            pixels.update(j for j in (i - 1, i) if 0 <= j < wave.size)
+
+    variance = np.zeros(4)
+    work = flux.copy()
+    for j in sorted(pixels):
+        s = sigma[j]
+        known = np.isfinite(s) and s > 0
+        # Without a sigma, a step on the pixel's own scale still shows which
+        # quantities depend on it.
+        step = 1e-3 * s if known else 1e-6 * max(abs(flux[j]), 1e-300)
+        work[j] = flux[j] + step
+        up = np.array(_width_measure(wave, work, x0, y0, mode, idx)[:4])
+        work[j] = flux[j] - step
+        down = np.array(_width_measure(wave, work, x0, y0, mode, idx)[:4])
+        work[j] = flux[j]
+        slope = (up - down) / (2 * step)
+        if known:
+            variance += (slope * s) ** 2
+        else:
+            variance[slope != 0] = np.nan
+    return np.sqrt(variance)

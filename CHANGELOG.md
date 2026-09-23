@@ -6,7 +6,51 @@ minor bump is where breaking changes live until 1.0.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`k` profile fits quote their uncertainties and reduced chi-square.**
+  One-sigma errors on the centre, equivalent width, flux and widths come from
+  the fit's covariance. When the spectrum carries errors they are taken at
+  their word; without them the errors are scaled by the residual scatter and
+  no chi-square is shown. A fit pinned to its bounds quotes no errors, since
+  it is not a measurement. Neither includes the uncertainty in where the
+  continuum was marked. The `splot.log` line is unchanged.
+- `h` width fits quote errors on the core, width, flux and eqw too,
+  propagated from the pixels the measurement reads: the one under the cursor
+  and the pairs either side of each crossing the mode uses. A pixel with no
+  usable sigma drops only the errors that depend on it. The centre and
+  continuum are the cursor's, so they carry none.
+- The `e` message quotes its errors the same way, as `eqw = 1.23 ± 0.04`, and
+  now shows the flux error it was already computing.
+
+### Changed
+
+- The edges of a measured region are drawn dashed, in the cursor's colour,
+  so they no longer look like a second cursor. Each dash is one terminal row
+  long; the `text` backend draws them crisp so every dash fills whole cells.
+- The profile-fit message calls the fitted peak height `ampl` rather than
+  splot's `core`, which read as something other than the amplitude above the
+  continuum it is.
+- The message area is two rows instead of one, and the plot one row shorter.
+  A long message wraps between fields, never between a value and its error.
+- `k` and `e` messages are compact: `cen=5500.006 ± 0.023  eqw=2.482 ± 0.024`,
+  no fixed-width padding, values rounded to the precision of their errors,
+  exponents as `1.8e7`, and no width that the profile does not have. A fit
+  that hit its bounds leads with the warning, so it is never the part cut off.
+
+### Fixed
+
+- `k` profile fits now respect the spectrum's mask. Previously a masked pixel
+  was only left out if its flux was not finite or its sigma infinite, so a
+  flagged bad pixel with a healthy-looking error could pull the fit.
+- `h` width fits respect the mask too. Masked pixels are skipped when finding
+  the crossings, so a flagged dropout inside the line is no longer taken for
+  the line's edge, and a masked pixel under the cursor is refused with a
+  message rather than measured.
+- `k` profile fits work on flux-calibrated spectra. With cgs flux densities
+  near 1e-17 the solver stopped on its starting guess and reported a tenth of
+  the marked span as the line width; the parameters are now scaled for the
+  solver, and residuals are normalised when there is no sigma to do it.
 
 ## [0.2.1] - 2026-09-01
 
