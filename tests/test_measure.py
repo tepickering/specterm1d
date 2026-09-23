@@ -157,6 +157,8 @@ def test_a_good_fit_reports_its_uncertainties_and_chi_square():
     assert re.search(r"center = +5009\.2 ± [0-9.e+-]+,", message)
     assert re.search(r"eqw = +-?[0-9.e+]+ ± [0-9.e+-]+,", message)
     assert "chi2_r = " in message
+    assert re.search(r"ampl = +-?[0-9.e+]+ ± [0-9.e+-]+,", message)
+    assert "core" not in message
     assert "+/-" not in message
 
 

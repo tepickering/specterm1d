@@ -18,6 +18,12 @@ minor bump is where breaking changes live until 1.0.
 - The `e` message quotes its errors the same way, as `eqw = 1.23 ± 0.04`, and
   now shows the flux error it was already computing.
 
+### Changed
+
+- The profile-fit message calls the fitted peak height `ampl` rather than
+  splot's `core`, which read as something other than the amplitude above the
+  continuum it is.
+
 ### Fixed
 
 - `k` profile fits now respect the spectrum's mask. Previously a masked pixel

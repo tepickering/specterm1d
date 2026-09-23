@@ -91,7 +91,7 @@ def _report_fit(session, fit, kind_label: str) -> None:
         f"{kind_label}: center = {fit.center:9.7g}{_pm(fit.center_err)}, "
         f"eqw = {fit.eqw:9.4g}{_pm(fit.eqw_err)}, "
         f"flux = {fit.flux:9.6g}{_pm(fit.flux_err)}, "
-        f"core = {fit.peak:9.6g}{_pm(fit.peak_err)}, "
+        f"ampl = {fit.peak:9.6g}{_pm(fit.peak_err)}, "
         f"gfwhm = {fit.gfwhm:9.4g}{_pm(fit.gfwhm_err)}, "
         f"lfwhm = {fit.lfwhm:9.4g}{_pm(fit.lfwhm_err)}{chisq}{warning}"
     )
