@@ -244,8 +244,11 @@ def _ramp(x, x1, y1, x2, y2):
 
 
 def fit_profile(wave, flux, sigma, x1: float, y1: float, x2: float, y2: float,
-                kind: str = "g") -> ProfileFit:
-    """Fit one line profile over a linear continuum between two cursor points."""
+                kind: str = "g", good=None) -> ProfileFit:
+    """Fit one line profile over a linear continuum between two cursor points.
+
+    ``good`` is the spectrum's mask, True where a pixel may be used.
+    """
     wave = np.asarray(wave, dtype=float)
     flux = np.asarray(flux, dtype=float)
     if x2 < x1:
@@ -253,6 +256,8 @@ def fit_profile(wave, flux, sigma, x1: float, y1: float, x2: float, y2: float,
         y1, y2 = y2, y1
 
     inside = (wave >= x1) & (wave <= x2) & np.isfinite(flux)
+    if good is not None:
+        inside &= np.asarray(good, dtype=bool)
     xs, ys = wave[inside], flux[inside]
     if xs.size < 4:
         nan = float("nan")
@@ -329,6 +334,7 @@ def fit_profile(wave, flux, sigma, x1: float, y1: float, x2: float, y2: float,
 
     center = float(params[0])
     amplitude = float(params[1])
+    model_x = np.linspace(x1, x2, min(max(xs.size, 64), 2000))
 
     if kind == "g":
         gfwhm = float(abs(params[2]) * FWHM_PER_SIGMA)
@@ -341,12 +347,12 @@ def fit_profile(wave, flux, sigma, x1: float, y1: float, x2: float, y2: float,
     else:
         gfwhm = float(abs(params[2]) * FWHM_PER_SIGMA)
         lfwhm = float(abs(params[3]) * 2.0)
-        area = float(np.trapezoid(model(params, xs), xs))
+        # On the model's own grid, so masked gaps in xs cannot eat area.
+        area = float(np.trapezoid(model(params, model_x), model_x))
 
     cont_at_center = float(_ramp(np.array([center]), x1, y1, x2, y2)[0])
     eqw = -area / cont_at_center if cont_at_center != 0 else float("nan")
 
-    model_x = np.linspace(x1, x2, min(max(xs.size, 64), 2000))
     model_y = model(params, model_x) + _ramp(model_x, x1, y1, x2, y2)
 
     return ProfileFit(center=center, cont=cont_at_center, peak=amplitude,

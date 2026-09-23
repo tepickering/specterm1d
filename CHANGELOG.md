@@ -6,7 +6,11 @@ minor bump is where breaking changes live until 1.0.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- `k` profile fits now respect the spectrum's mask. Previously a masked pixel
+  was only left out if its flux was not finite or its sigma infinite, so a
+  flagged bad pixel with a healthy-looking error could pull the fit.
 
 ## [0.2.1] - 2026-09-01
 

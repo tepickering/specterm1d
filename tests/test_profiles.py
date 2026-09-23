@@ -244,3 +244,23 @@ def test_the_bounds_hold_for_lorentzian_and_voigt_too():
         assert 4995.0 <= fit.center <= 5025.0
         assert fit.gfwhm <= 30.0 * (1 + 1e-9)
         assert fit.lfwhm <= 30.0 * (1 + 1e-9)
+
+
+# ---- the fit honours the mask and says how good it is ---------------
+
+def test_masked_pixels_do_not_enter_the_fit():
+    # A deep spike the mask flags as bad but whose sigma looks perfectly
+    # healthy: only the mask can keep it out.
+    wave = np.linspace(5450.0, 5550.0, 2001)
+    flux = absorption(wave, centre=5500.0, fwhm=5.0, depth=0.5)
+    sigma = np.full(wave.size, 0.01)
+    spike = int(np.abs(wave - 5480.0).argmin())
+    flux[spike - 5:spike + 5] -= 2.0
+    good = np.ones(wave.size, dtype=bool)
+    good[spike - 5:spike + 5] = False
+
+    fit = fit_profile(wave, flux, sigma, 5460.0, 1.0, 5540.0, 1.0, "g",
+                      good=good)
+    assert fit.center == pytest.approx(5500.0, abs=0.05)
+    assert fit.gfwhm == pytest.approx(5.0, rel=0.02)
+

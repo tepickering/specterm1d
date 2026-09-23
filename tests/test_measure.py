@@ -141,3 +141,21 @@ def test_a_good_fit_carries_no_warning():
         session.view.cursor_x = x
         session.handle(Key("char", " "))
     assert "check the continuum" not in session.last_message
+
+
+def test_the_profile_fit_uses_the_spectrum_mask():
+    import numpy as np
+
+    session = _bad_continuum_session()
+    spec = session.view.current_spec()
+    near = np.abs(spec.wave - 5000.0) < 0.3
+    spec.flux[near] += 3e6              # a bad-pixel spike...
+    spec.good[near] = False             # ...that the mask flags
+    session.view.cursor_y = 6000.0
+    for char in "kg":
+        session.handle(Key("char", char))
+    for x in (4995.0, 5025.0):
+        session.view.cursor_x = x
+        session.handle(Key("char", " "))
+    assert "center =    5009.2" in session.last_message
+

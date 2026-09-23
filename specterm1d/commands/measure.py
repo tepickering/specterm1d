@@ -106,7 +106,7 @@ def profile(session):
                 return
             spec = inner.view.display_spec()
             fit = fit_profile(spec.wave, spec.flux, spec.sigma,
-                              x1, y1, x2, y2, kind)
+                              x1, y1, x2, y2, kind, good=spec.good)
             inner.view.markers.extend([x1, x2])
             _report_fit(inner, fit, _PROFILE_KINDS[kind])
 
