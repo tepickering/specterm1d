@@ -6,6 +6,18 @@ minor bump is where breaking changes live until 1.0.
 
 ## [Unreleased]
 
+### Added
+
+- **`k` profile fits quote their uncertainties and reduced chi-square.**
+  One-sigma errors on the centre, equivalent width, flux and widths come from
+  the fit's covariance. When the spectrum carries errors they are taken at
+  their word; without them the errors are scaled by the residual scatter and
+  no chi-square is shown. A fit pinned to its bounds quotes no errors, since
+  it is not a measurement. Neither includes the uncertainty in where the
+  continuum was marked. The `splot.log` line is unchanged.
+- The `e` message quotes its errors the same way, as `eqw = 1.23 ± 0.04`, and
+  now shows the flux error it was already computing.
+
 ### Fixed
 
 - `k` profile fits now respect the spectrum's mask. Previously a masked pixel

@@ -1,4 +1,6 @@
 # tests/test_measure.py
+import re
+
 import pytest
 
 import specterm1d.commands  # noqa: F401
@@ -143,6 +145,32 @@ def test_a_good_fit_carries_no_warning():
     assert "check the continuum" not in session.last_message
 
 
+def test_a_good_fit_reports_its_uncertainties_and_chi_square():
+    session = _bad_continuum_session()
+    session.view.cursor_y = 6000.0
+    for char in "kg":
+        session.handle(Key("char", char))
+    for x in (4995.0, 5025.0):
+        session.view.cursor_x = x
+        session.handle(Key("char", " "))
+    message = session.last_message
+    assert re.search(r"center = +5009\.2 ± [0-9.e+-]+,", message)
+    assert re.search(r"eqw = +-?[0-9.e+]+ ± [0-9.e+-]+,", message)
+    assert "chi2_r = " in message
+    assert "+/-" not in message
+
+
+def test_a_fit_without_errors_shows_no_plus_minus():
+    session = _bad_continuum_session()
+    session.view.cursor_y = 2144858.0          # a fit pinned to its bounds
+    for char in "kg":
+        session.handle(Key("char", char))
+    for x in (4995.0, 5025.0):
+        session.view.cursor_x = x
+        session.handle(Key("char", " "))
+    assert "±" not in session.last_message
+
+
 def test_the_profile_fit_uses_the_spectrum_mask():
     import numpy as np
 
@@ -158,4 +186,23 @@ def test_the_profile_fit_uses_the_spectrum_mask():
         session.view.cursor_x = x
         session.handle(Key("char", " "))
     assert "center =    5009.2" in session.last_message
+
+
+def test_e_quotes_its_errors_inline():
+    session = _bad_continuum_session()
+    session.handle(Key("char", "e"))
+    mark(session, 4995.0, 6000.0)
+    mark(session, 5025.0, 6000.0)
+    message = session.last_message
+    assert re.search(r"eqw = +-?[0-9.e+]+ ± [0-9.e+-]+,", message)
+    assert re.search(r"flux = +-?[0-9.e+]+ ± [0-9.e+-]+$", message)
+    assert "+/-" not in message
+
+
+def test_e_without_sigma_shows_no_plus_minus():
+    session, _ = make_session()
+    session.handle(Key("char", "e"))
+    mark(session, 5200.0, 2.0)
+    mark(session, 5400.0, 2.0)
+    assert "±" not in session.last_message
 

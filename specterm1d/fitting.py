@@ -203,6 +203,14 @@ class ProfileFit:
     model_x: np.ndarray
     model_y: np.ndarray
     rms: float = float("nan")
+    chisq: float = float("nan")
+    """Reduced chi-square, when the spectrum carries errors to compute it."""
+    center_err: float = float("nan")
+    peak_err: float = float("nan")
+    flux_err: float = float("nan")
+    eqw_err: float = float("nan")
+    gfwhm_err: float = float("nan")
+    lfwhm_err: float = float("nan")
     at_bound: str = ""
     """Which parameters the solver pinned to a limit, if any.
 
@@ -247,7 +255,10 @@ def fit_profile(wave, flux, sigma, x1: float, y1: float, x2: float, y2: float,
                 kind: str = "g", good=None) -> ProfileFit:
     """Fit one line profile over a linear continuum between two cursor points.
 
-    ``good`` is the spectrum's mask, True where a pixel may be used.
+    ``good`` is the spectrum's mask, True where a pixel may be used. With
+    ``sigma`` the fit minimises chi-square and the quoted errors take sigma at
+    its word; without it they are scaled by the scatter of the residuals.
+    Neither includes the uncertainty in where the continuum was marked.
     """
     wave = np.asarray(wave, dtype=float)
     flux = np.asarray(flux, dtype=float)
@@ -267,12 +278,14 @@ def fit_profile(wave, flux, sigma, x1: float, y1: float, x2: float, y2: float,
     continuum = _ramp(xs, x1, y1, x2, y2)
     residual = ys - continuum
 
+    weighted = False
     weights = np.ones_like(xs)
     if sigma is not None:
         s = np.asarray(sigma, dtype=float)[inside]
         ok = np.isfinite(s) & (s > 0)
         weights = np.where(ok, 1.0 / np.where(ok, s, 1.0), 0.0)
-        if not np.any(weights > 0):
+        weighted = bool(np.any(weights > 0))
+        if not weighted:
             weights = np.ones_like(xs)
 
     # Weight the initial guess as well as the fit. Seeding on the largest raw
@@ -318,7 +331,27 @@ def fit_profile(wave, flux, sigma, x1: float, y1: float, x2: float, y2: float,
 
     names = ("centre", "amplitude", *widths)
     p0 = list(np.clip(p0, lo, hi))
+    model_x = np.linspace(x1, x2, min(max(xs.size, 64), 2000))
 
+    def measure(p):
+        """centre, amplitude, flux, eqw, gfwhm, lfwhm from a parameter vector."""
+        center, amplitude = float(p[0]), float(p[1])
+        if kind == "g":
+            gfwhm, lfwhm = abs(p[2]) * FWHM_PER_SIGMA, 0.0
+            area = amplitude * abs(p[2]) * np.sqrt(2.0 * np.pi)
+        elif kind == "l":
+            gfwhm, lfwhm = 0.0, abs(p[2]) * 2.0
+            area = amplitude * abs(p[2]) * np.pi
+        else:
+            gfwhm, lfwhm = abs(p[2]) * FWHM_PER_SIGMA, abs(p[3]) * 2.0
+            # On the model's own grid, so masked gaps in xs cannot eat area.
+            area = np.trapezoid(model(p, model_x), model_x)
+        cont = float(_ramp(np.array([center]), x1, y1, x2, y2)[0])
+        eqw = -area / cont if cont != 0 else float("nan")
+        return np.array([center, amplitude, area, eqw, gfwhm, lfwhm], dtype=float)
+
+    errors = np.full(6, np.nan)
+    chisq = float("nan")
     try:
         solution = least_squares(
             lambda p: (model(p, xs) - residual) * weights, p0, method="trf",
@@ -326,39 +359,63 @@ def fit_profile(wave, flux, sigma, x1: float, y1: float, x2: float, y2: float,
         )
         params = solution.x
         rms = float(np.sqrt(np.mean((model(params, xs) - residual) ** 2)))
+
+        # Only pixels that carry weight count towards the degrees of freedom:
+        # a pixel with infinite sigma is no more data than a masked one.
+        dof = int(np.count_nonzero(weights > 0)) - len(params)
+        if dof > 0:
+            chi2 = float(np.sum(solution.fun ** 2))
+            cov = np.linalg.pinv(solution.jac.T @ solution.jac)
+            if weighted:
+                chisq = chi2 / dof
+            else:
+                cov *= chi2 / dof
+            errors = _propagate(measure, params, cov)
     except Exception:
         params = np.array(p0, dtype=float)
         rms = float("nan")
 
     at_bound = _pinned(params, lo, hi, names)
+    if at_bound:
+        # A pinned parameter's curvature describes the wall, not the data.
+        errors = np.full(6, np.nan)
 
-    center = float(params[0])
-    amplitude = float(params[1])
-    model_x = np.linspace(x1, x2, min(max(xs.size, 64), 2000))
-
-    if kind == "g":
-        gfwhm = float(abs(params[2]) * FWHM_PER_SIGMA)
-        lfwhm = 0.0
-        area = amplitude * abs(params[2]) * np.sqrt(2.0 * np.pi)
-    elif kind == "l":
-        gfwhm = 0.0
-        lfwhm = float(abs(params[2]) * 2.0)
-        area = amplitude * abs(params[2]) * np.pi
-    else:
-        gfwhm = float(abs(params[2]) * FWHM_PER_SIGMA)
-        lfwhm = float(abs(params[3]) * 2.0)
-        # On the model's own grid, so masked gaps in xs cannot eat area.
-        area = float(np.trapezoid(model(params, model_x), model_x))
-
+    center, amplitude, area, eqw, gfwhm, lfwhm = measure(params)
     cont_at_center = float(_ramp(np.array([center]), x1, y1, x2, y2)[0])
-    eqw = -area / cont_at_center if cont_at_center != 0 else float("nan")
-
     model_y = model(params, model_x) + _ramp(model_x, x1, y1, x2, y2)
 
     return ProfileFit(center=center, cont=cont_at_center, peak=amplitude,
-                      flux=float(area), eqw=float(eqw), gfwhm=gfwhm,
-                      lfwhm=lfwhm, model_x=model_x, model_y=model_y, rms=rms,
+                      flux=float(area), eqw=float(eqw), gfwhm=float(gfwhm),
+                      lfwhm=float(lfwhm), model_x=model_x, model_y=model_y,
+                      rms=rms, chisq=chisq,
+                      center_err=float(errors[0]), peak_err=float(errors[1]),
+                      flux_err=float(errors[2]), eqw_err=float(errors[3]),
+                      gfwhm_err=float(errors[4]), lfwhm_err=float(errors[5]),
                       at_bound=at_bound)
+
+
+def _propagate(measure, params, cov) -> np.ndarray:
+    """One-sigma errors on ``measure(params)`` from the parameter covariance.
+
+    Central differences stepped by a small fraction of each parameter's own
+    error, which keeps the step in proportion whatever its units.
+    """
+    params = np.asarray(params, dtype=float)
+    scale = np.sqrt(np.clip(np.diag(cov), 0.0, None))
+    grad = np.zeros((measure(params).size, params.size))
+    for i, step in enumerate(scale * 1e-3):
+        if not np.isfinite(step) or step == 0:
+            continue
+        up, down = params.copy(), params.copy()
+        up[i] += step
+        down[i] -= step
+        grad[:, i] = (measure(up) - measure(down)) / (2 * step)
+    variance = np.einsum("ij,jk,ik->i", grad, cov, grad)
+    errors = np.sqrt(np.clip(variance, 0.0, None))
+    # A quantity the fit cannot move at all (lfwhm for a gaussian) has no
+    # error to speak of, rather than an error of exactly zero.
+    errors[~grad.any(axis=1)] = np.nan
+    return errors
 
 
 def _crossings(xs, ys, level: float, center: float):

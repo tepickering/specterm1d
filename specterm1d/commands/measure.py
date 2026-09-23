@@ -30,11 +30,12 @@ def equivalent_width(session):
         sess.log.record("e", center=result.center, cont=result.cont,
                         flux=result.flux, eqw=result.eqw)
 
-        detail = (f"center = {result.center:9.7g}, eqw = {result.eqw:9.4f}, "
-                  f"continuum = {result.cont:9.7g} flux = {result.flux:9.6g}")
-        if np.isfinite(result.eqw_err):
-            detail += f"  (+/- {result.eqw_err:.3g})"
-        sess.message(detail)
+        sess.message(
+            f"center = {result.center:9.7g}{_pm(result.center_err)}, "
+            f"eqw = {result.eqw:9.4f}{_pm(result.eqw_err)}, "
+            f"continuum = {result.cont:9.7g} "
+            f"flux = {result.flux:9.6g}{_pm(result.flux_err)}"
+        )
 
     session.await_cursor(2, "mark two continuum points around the line", done)
 
@@ -85,11 +86,20 @@ def _report_fit(session, fit, kind_label: str) -> None:
     # measurement, and saying so beats a plausible-looking width in the log.
     warning = (f"  [{fit.at_bound} hit the marked range - check the continuum "
                "marks]") if fit.at_bound else ""
+    chisq = f"  chi2_r = {fit.chisq:.3g}" if np.isfinite(fit.chisq) else ""
     session.message(
-        f"{kind_label}: center = {fit.center:9.7g}, eqw = {fit.eqw:9.4g}, "
-        f"flux = {fit.flux:9.6g}, core = {fit.peak:9.6g}, "
-        f"gfwhm = {fit.gfwhm:9.4g}, lfwhm = {fit.lfwhm:9.4g}{warning}"
+        f"{kind_label}: center = {fit.center:9.7g}{_pm(fit.center_err)}, "
+        f"eqw = {fit.eqw:9.4g}{_pm(fit.eqw_err)}, "
+        f"flux = {fit.flux:9.6g}{_pm(fit.flux_err)}, "
+        f"core = {fit.peak:9.6g}{_pm(fit.peak_err)}, "
+        f"gfwhm = {fit.gfwhm:9.4g}{_pm(fit.gfwhm_err)}, "
+        f"lfwhm = {fit.lfwhm:9.4g}{_pm(fit.lfwhm_err)}{chisq}{warning}"
     )
+
+
+def _pm(err: float) -> str:
+    """' ± err' for a known one-sigma error, nothing for an unknown one."""
+    return f" ± {err:.2g}" if np.isfinite(err) else ""
 
 
 @command("measure.profile")

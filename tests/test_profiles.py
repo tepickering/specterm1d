@@ -264,3 +264,82 @@ def test_masked_pixels_do_not_enter_the_fit():
     assert fit.center == pytest.approx(5500.0, abs=0.05)
     assert fit.gfwhm == pytest.approx(5.0, rel=0.02)
 
+
+def _noisy_line(seed, noise=0.02):
+    rng = np.random.default_rng(seed)
+    wave = np.linspace(5450.0, 5550.0, 801)
+    flux = absorption(wave, centre=5500.0, fwhm=5.0, depth=0.5)
+    return wave, flux + rng.normal(0.0, noise, wave.size), np.full(wave.size, noise)
+
+
+def test_a_fit_reports_parameter_uncertainties():
+    wave, flux, sigma = _noisy_line(3)
+    fit = fit_profile(wave, flux, sigma, 5460.0, 1.0, 5540.0, 1.0, "g")
+    for err in (fit.center_err, fit.peak_err, fit.flux_err, fit.eqw_err,
+                fit.gfwhm_err):
+        assert np.isfinite(err) and err > 0
+
+
+def test_the_uncertainties_match_the_scatter_between_noise_draws():
+    fits = [fit_profile(*_noisy_line(seed)[:2], _noisy_line(seed)[2],
+                        5460.0, 1.0, 5540.0, 1.0, "g") for seed in range(200)]
+    for value, err in (("center", "center_err"), ("eqw", "eqw_err"),
+                       ("gfwhm", "gfwhm_err")):
+        scatter = np.std([getattr(f, value) for f in fits])
+        quoted = np.median([getattr(f, err) for f in fits])
+        assert quoted == pytest.approx(scatter, rel=0.2)
+
+
+def test_uncertainties_scale_with_the_quoted_sigma():
+    # With real errors the covariance is absolute: doubling sigma on the same
+    # data doubles every error, rather than being rescaled away by the
+    # residuals.
+    wave, flux, sigma = _noisy_line(5)
+    one = fit_profile(wave, flux, sigma, 5460.0, 1.0, 5540.0, 1.0, "g")
+    two = fit_profile(wave, flux, 2 * sigma, 5460.0, 1.0, 5540.0, 1.0, "g")
+    assert two.center_err == pytest.approx(2 * one.center_err, rel=1e-3)
+
+
+def test_without_sigma_the_uncertainties_come_from_the_residuals():
+    wave, flux, _ = _noisy_line(7)
+    fit = fit_profile(wave, flux, None, 5460.0, 1.0, 5540.0, 1.0, "g")
+    assert np.isfinite(fit.center_err) and fit.center_err > 0
+    assert np.isnan(fit.chisq)
+
+
+def test_voigt_and_lorentzian_report_their_lorentzian_width_error():
+    wave = np.linspace(5450.0, 5550.0, 801)
+    rng = np.random.default_rng(11)
+    sigma = np.full(wave.size, 0.01)
+    flux = 1.0 + voigt(wave, 5500.0, -0.4, 1.5, 1.0) + rng.normal(0, 0.01, wave.size)
+    for kind in ("l", "v"):
+        fit = fit_profile(wave, flux, sigma, 5460.0, 1.0, 5540.0, 1.0, kind)
+        assert np.isfinite(fit.lfwhm_err) and fit.lfwhm_err > 0
+
+
+def test_a_fit_pinned_to_its_bounds_quotes_no_uncertainties():
+    wave, flux, sigma = _emission_line()
+    fit = fit_profile(wave, flux, sigma, 4995.0, MID_WINDOW,
+                      5025.0, MID_WINDOW, "g")
+    assert fit.at_bound
+    assert np.isnan(fit.center_err) and np.isnan(fit.eqw_err)
+
+
+def test_reduced_chi_square_is_near_one_for_honest_errors():
+    values = [fit_profile(*_noisy_line(seed), 5460.0, 1.0, 5540.0, 1.0, "g").chisq
+              for seed in range(20)]
+    assert np.mean(values) == pytest.approx(1.0, abs=0.05)
+
+
+def test_reduced_chi_square_grows_when_the_errors_are_understated():
+    wave, flux, sigma = _noisy_line(9)
+    fit = fit_profile(wave, flux, sigma / 3, 5460.0, 1.0, 5540.0, 1.0, "g")
+    assert fit.chisq == pytest.approx(9.0, rel=0.15)
+
+
+def test_reduced_chi_square_counts_only_pixels_that_carry_weight():
+    wave, flux, sigma = _noisy_line(13)
+    sigma = sigma.copy()
+    sigma[::2] = np.inf                 # half the pixels carry no information
+    fit = fit_profile(wave, flux, sigma, 5460.0, 1.0, 5540.0, 1.0, "g")
+    assert fit.chisq == pytest.approx(1.0, abs=0.15)
