@@ -13,9 +13,16 @@ jobs:
   check:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
+    # Free-threaded rows are there to find out, not to gate a merge.
+    continue-on-error: ${{ matrix.experimental || false }}
     env:
       # matplotlib must never reach for a display in CI.
       MPLBACKEND: Agg
+      # On a free-threaded build, importing an extension that has not declared
+      # itself thread-safe quietly turns the GIL back on, and the tests would
+      # then pass without testing anything. Keep it off so they fail instead.
+      # Empty on the other rows, where CPython ignores it; 0 there is fatal.
+      PYTHON_GIL: ${{ matrix.gil }}
     strategy:
       fail-fast: false
       matrix:
@@ -36,6 +43,18 @@ jobs:
             python: "3.13"
             extras: dev
             command: python -m pytest -q
+          - name: test (3.14t)
+            python: "3.14t"
+            extras: dev
+            command: python -m pytest -q
+            gil: "0"
+            experimental: true
+          - name: test (3.15t)
+            python: "3.15t"
+            extras: dev
+            command: python -m pytest -q
+            gil: "0"
+            experimental: true
     steps:
       - uses: actions/checkout@v7
         with:
@@ -45,6 +64,8 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
+          # 3.15 is still a release candidate.
+          allow-prereleases: true
           cache: pip
       - run: pip install -e '.[${{ matrix.extras }}]'
       - run: ${{ matrix.command }}
