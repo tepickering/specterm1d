@@ -37,14 +37,17 @@ jobs:
             command: sphinx-build -W --keep-going docs docs/_build/html
           - name: test (3.14)
             python: "3.14"
-            # One row carries PypeIt so its reader tests run rather than skip.
-            # Not a free-threaded row: fast-histogram, a PypeIt dependency,
-            # builds against the limited API, which those builds lack.
-            extras: dev,pypeit
+            extras: dev
             command: python -m pytest -q
           - name: test (3.13)
             python: "3.13"
-            extras: dev
+            # One row carries PypeIt so its reader tests run rather than skip.
+            # It has to be this one: every PypeIt release so far declares
+            # Requires-Python <3.14, which pip honours (uv does not, so a
+            # local uv install on 3.14 is no guide). Free-threaded builds are
+            # out regardless: fast-histogram, a PypeIt dependency, builds
+            # against the limited API, which those builds lack.
+            extras: dev,pypeit
             command: python -m pytest -q
           - name: test (3.14t)
             python: "3.14t"
